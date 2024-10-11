@@ -4,11 +4,14 @@
  * 数据库连接
  */
 
-namespace Atto\Box\attoorm;
+namespace Atto\Box;
 
 use Medoo\Medoo;
 
 class Db
 {
-
+    public function foobar()
+    {
+        var_export("attoorm db foobar");
+    }
 }
