@@ -7,6 +7,7 @@
  * 使用方式：
  *      $jwt = new Jwt();
  *      $jwt->requestHeader = "自定义的请求头字段名，默认为 Authorization";
+ *      $jwt->secretDir = "自定义的 secret.json 保存路径 [appdir]/accounts";
  * 
  *      用户登录成功后，生成 token
  *          $token = $jwt->generate( [ usrData ], " 可手动指定 audience 允许的访问来源：如：foo.cgy.design " );
@@ -69,8 +70,8 @@ class Jwt
     //可自定义 headers 字段名，默认 Authorization
     public $requestHeader = "Authorization";
 
-    //自定义 jwt-secret.json 的保存位置，默认 [webroot|app/appname]/library/jwt/secret
-    public $secretDir = "library/jwt/secret";
+    //自定义 jwt-secret.json 的保存位置，默认 [webroot|app/appname]/accounts
+    public $secretDir = "app/db/accounts";
 
     /**
      * 从 Request Headers 中解析当前请求的来源
@@ -88,54 +89,76 @@ class Jwt
     }
 
     /**
-     * 根据请求来源，获取签名使用的密钥 secret
-     * 如果没有，则创建并保存到 
-     *      [$this->secretDir]/[base64(audience)].json
-     * @param String $aud 解析得到的 request 来源 domain  or  public
-     * @param String $secretDir 在此目录查找 secret 文件，必须是正确的文件夹路径，默认不提供
-     * @return String | null     secret 密钥
+     * 根据请求来源 audience 创建密钥 secret  or  编辑此 audience 包含的 account 数据
+     * 保存到 [$this->secretDir]/[base64(audience)].json
+     * @param String $aud 请求来源，domain  or  public
+     * @param Array $extra 要写入 json 的更多数据，!!! 必须包含 name 字段 !!!
+     * @return String secret 密钥
      */
-    protected function getSecretByAud($aud = null, $secretDir = null)
+    public function createSecretByAud($aud=null, $account=[])
     {
-        $aud = is_null($aud) ? "public" : $aud;
-        $base_aud = base64_encode($aud);
-        $secretDir = !is_notempty_str($secretDir) ? $this->secretDir : $secretDir;
-        $sfn = $secretDir.DS.$base_aud.".json";
-        //var_dump($sfn);
-        $sf = path_find($sfn);
-        if (empty($sf)) {
-            //不存在 则创建
-            $secret = str_nonce()."@".$aud;
-            $sfh = @fopen($secretDir.DS.$base_aud.".json", "w");
-            if (!$sfh) return null;
-            $secrets = [
-                "aud" => $aud,
-                "secret" => $secret
-            ];
-            @fwrite($sfh, a2j($secrets));
-            @fclose($sfh);
-        } else {
-            $secrets = j2a(file_get_contents($sf));
-        }
-        return $secrets["secret"];
-    }
-
-    /**
-     * 读取/写入 secret.json
-     */
-    protected function writeSecretJson($data = [])
-    {
-        $aud = $this->getAudienceFromRequestHeader();
+        $aud = is_notempty_str($aud) ? $aud : $this->getAudienceFromRequestHeader();
         $base_aud = base64_encode($aud);
         $secretDir = $this->secretDir;
         $sfn = $secretDir.DS.$base_aud.".json";
         $sf = path_find($sfn);
-        if (empty($sf)) return [];
-        $secrets = j2a(file_get_contents($sf));
-        if (empty($data)) return $secrets;
-        $secrets = arr_extend($secrets, $data);
-        file_put_contents($sf, a2j($secrets));
-        return $secrets;
+        if (file_exists($sf)) {
+            //已经存在，检查 account 数据是否已经包含在 json 中
+            $sn = j2a(file_get_contents($sf));
+            //未指定 account 直接退出
+            if (empty($account) || !is_notempty_str($account["name"])) return $sn["secret"];
+            $acname = $account["name"];
+            //account 数据保存在 account 字段下
+            $ac = $sn["account"] ?? null;
+            if (empty($ac)) $sn["account"] = [];
+            if (isset($ac[$acname])) {
+                $sn["account"][$acname] = arr_extend($ac[$acname], $account);
+            } else {
+                $sn["account"][$acname] = $account;
+            }
+            //写入
+            file_put_contents($sf, a2j($sn));
+            return $sn["secret"];
+        } else {
+            //不存在此 audience 的 secret，创建
+            $secret = str_nonce()."@".$aud;
+            $sfh = @fopen($sfn, "w");
+            if (!$sfh) return null;
+            $sn = [
+                "aud" => $aud,
+                "secret" => $secret,
+                "account" => []
+            ];
+            if (!empty($account) && is_notempty_str($account["name"])) {
+                $acname = $account["name"];
+                $sn["account"][$acname] = $account;
+            }
+            @fwrite($sfh, a2j($sn));
+            @fclose($sfh);
+            return $sn["secret"];
+        }
+    }
+
+    /**
+     * 根据请求来源，获取签名使用的密钥 secret
+     * @param String $aud 解析得到的 request 来源 domain  or  public
+     * @return String | null     secret 密钥
+     */
+    protected function getSecretByAud($aud=null)
+    {
+        $aud = is_notempty_str($aud) ? $aud : $this->getAudienceFromRequestHeader();
+        $base_aud = base64_encode($aud);
+        $secretDir = $this->secretDir;
+        $sfn = $secretDir.DS.$base_aud.".json";
+        //var_dump($sfn);
+        $sf = path_find($sfn);
+        if (!empty($sf)) {
+            //找到保存的 json
+            $sn = j2a(file_get_contents($sf));
+            return $sn["secret"];
+        }
+        //未找到 json 则创建
+        return $this->createSecretByAud($aud);
     }
 
     /**
