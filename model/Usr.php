@@ -6,9 +6,9 @@
  * 如果需要保存 自定义的 usr 信息，可单独建立用户信息表，然后与 usr 表 通过 uid 字段关联起来
  */
 
-namespace Atto\Box\db\model;
+namespace Atto\Orm\model;
 
-use Atto\Box\db\Model;
+use Atto\Orm\Model;
 
 class Usr extends Model 
 {

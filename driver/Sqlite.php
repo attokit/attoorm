@@ -3,11 +3,11 @@
  * sqlite 类型数据库 驱动
  */
 
-namespace Atto\Box\db\driver;
+namespace Atto\Orm\driver;
 
-use Atto\Box\db\Dbo;
-use Atto\Box\db\Driver;
-use Atto\Box\db\Configer;
+use Atto\Orm\Dbo;
+use Atto\Orm\Driver;
+use Atto\Orm\Configer;
 
 class Sqlite extends Driver 
 {
@@ -16,6 +16,8 @@ class Sqlite extends Driver
 
     //默认 数据库文件 保存路径，默认 [webroot | app/appname]/db
     public static $DBDIR = "db";
+
+
 
     /**
      * !! 必须实现 !!
@@ -30,6 +32,7 @@ class Sqlite extends Driver
     {
         //数据库文件
         $dbf = self::getDbPath($opt);
+        var_dump($dbf);
         if (!file_exists($dbf)) return null;
         $dbf = path_fix($dbf);
         $pathinfo = pathinfo($dbf);
@@ -79,6 +82,9 @@ class Sqlite extends Driver
     //根据 连接参数中 获取 数据库文件路径
     public static function getDbPath($opt=[])
     {
+        return $opt["database"];
+
+        
         $database = $opt["database"] ?? null;
         if (empty($database) || !is_notempty_str($database)) return null;
         //路径分隔符设为 DS

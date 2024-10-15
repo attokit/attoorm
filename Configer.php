@@ -4,7 +4,7 @@
  * 解析得到 Configer 实例对象
  */
 
-namespace Atto\Box\db;
+namespace Atto\Orm;
 
 class Configer 
 {

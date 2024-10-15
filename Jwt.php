@@ -54,7 +54,7 @@
  * 
  */
 
-namespace Atto\Box\db;
+namespace Atto\Orm;
 
 use Atto\Box\Request;
 use Atto\Box\Uac;

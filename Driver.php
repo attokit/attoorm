@@ -3,7 +3,7 @@
  * 数据库类型 驱动 基类
  */
 
-namespace Atto\Box\db;
+namespace Atto\Orm;
 
 use Atto\Box\db\Dbo;
 
