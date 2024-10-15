@@ -28,14 +28,22 @@ class Model
      * 子类覆盖
      */
     public static $name = "";
+    public static $table = "";  //数据表(模型)类 在数据库中的 表名称，通常是 model::$name 的全小写
     public static $title = "";
+    public static $desc = "";
     public static $xpath = "";  // Appname/dbname/Tbname  -->  \Atto\Orm\Appname\model\dbname\Tbname
     //表结构
     public static $creation = [
         //...
     ];
+    //字段 meta 数据
+    public static $meta = [];
+    //关联表预设，medoo 方法的 join 参数形式
+    public static $join = [
 
-    //依赖：预设参数解析对象 ModelConfiger 实例
+    ];
+
+    //预设参数解析对象 ModelConfiger 实例
     public static $configer = null;
 
     //通过解析上方预设参数 得到的 config 数据
@@ -74,8 +82,31 @@ class Model
         $data = arr_extend(static::$default, $data);
         $this->context = $data;
 
-        $aif = static::aiField();
+        $aif = static::aif();
         $this->isNew = !isset($data[$aif]);
+    }
+
+    /**
+     * __get
+     */
+    public function __get($key)
+    {
+        //$rs->fieldname 返回字段值
+        if (static::hasField($key)) {
+            return $this->context[$key];
+        }
+
+        //$rs->Modelname 返回 数据表(模型) 类
+        if (static::$db instanceof Dbo && static::$db->hasModel($key)) {
+            return static::$db->getModelCls($key, false);
+        }
+
+        //$rs->Model 返回当前 数据表(模型) 类
+        if ($key=="Model") {
+            return static::cls();
+        }
+
+        return null;
     }
 
 
@@ -89,26 +120,33 @@ class Model
      */
 
     /**
+     * 解析 数据表(模型) 预设参数
+     * @return String 类全称
+     */
+    public static function parseConfig()
+    {
+        $cls = static::cls();
+        //使用 ModelConfiger 解析表预设
+        static::$configer = new ModelConfiger($cls);
+        return $cls;
+    }
+
+    /**
      * 依赖注入
      * @param Array $di 要注入 模型(表) 类的依赖对象，应包含：
      *  [
      *      "db" => 此 模型(表) 所在的数据库实例
      *      
      *  ]
-     * @return void
+     * @return String 类全称
      */
     public static function dependency($di=[])
     {
-        //依赖：数据表预设参数解析对象
-        static::$configer = new ModelConfiger(static::cls());
-
         //依赖：此表所在数据库实例
         $db = $di["db"] ?? null;
         if (!empty($db) && $db instanceof Dbo) {
             static::$db = $db;
         }
-
-        
 
         return static::cls();
     }
@@ -122,8 +160,14 @@ class Model
         $tb = static::$name;
         $db = static::$db;
         if (!$db instanceof Dbo) return static::cls();
-        $rs = $db->medoo("select", ...$args);
-        return $rs;
+        $rs = $db->curdQuery("select");
+        var_dump($rs);
+        //create record set
+        $rso  = [];
+        foreach ($rs as $i => $rsi) {
+            $rso[$i] = new static($rsi);
+        }
+        return $rso;
     }
 
     /**
@@ -163,7 +207,7 @@ class Model
      * 获取此表的自增字段
      * @return String 字段名
      */
-    public static function aiField()
+    public static function aif()
     {
         $fdc = static::$field;
         $rtn = "id";
@@ -185,12 +229,16 @@ class Model
 
 
     /**
-     * 返回 Model 子类
+     * 返回当前 Model 数据表(模型) 类全称
      * @return Class
      */
     public static function cls()
     {
-        return static::class;
+        $cls = static::class;
+        if (substr($cls, 0,1)!="\\") {
+            $cls = "\\".$cls;
+        }
+        return $cls;
     }
 
 }

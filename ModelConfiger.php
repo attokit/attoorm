@@ -121,8 +121,9 @@ class ModelConfiger
         $fdc = $this->field;
         $fdd = [];
         foreach ($fdc as $fdn => $c) {
-            if ($c["ai"]==true) continue;
-            if (is_null($c["default"])) continue;
+            if ($c["ai"]==true || is_null($c["default"])) {
+                $fdd[$fdn] = null;
+            }
             $fdd[$fdn] = $c["default"];
         }
         //写入 

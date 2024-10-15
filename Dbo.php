@@ -17,6 +17,7 @@ namespace Atto\Orm;
 use Atto\Orm\Orm;
 use Atto\Orm\DbApp;
 use Atto\Orm\Model;
+use Atto\Orm\Curd;
 use Medoo\Medoo;
 use Atto\Box\Request;
 use Atto\Box\Response;
@@ -48,13 +49,10 @@ class Dbo
     protected $_medoo = null;
 
     /**
-     * CURD 操作
-     * 参数在每次 CURD 完成后 reset
+     * Curd 操作类实例
+     * 在每次 Curd 完成后 销毁
      */
-    protected $curd = [
-        "table" => "",      //操作的表，必须
-        "field" => "*",     //要获取的字段
-    ];
+    protected $curd = null;
 
     //此数据库实例 挂载到的 dbapp 实例，即：$dbapp->mainDb == $this
     protected $app = null;
@@ -112,10 +110,9 @@ class Dbo
      * 获取当前数据库中 数据表(模型)类 全称
      * 并对此 数据表(模型) 类 做预处理，注入依赖 等
      * @param String $model 表(模型)名称 如：Usr
-     * @param Bool $initCurd 是否重新初始化 curd 操作，默认 true
-     * @return String | Class 类全称
+     * @return String 类全称
      */
-    public function getModelCls($model, $initCurd=true)
+    public function getModel($model)
     {
         if (!$this->app instanceof DbApp) return null;
         $appname = $this->app->name;
@@ -124,17 +121,30 @@ class Dbo
         $mcls = Orm::cls($dpre."/".$model);
         if (!class_exists($mcls)) return null;
         if (empty($mcls::$db) || !$mcls::$db instanceof Dbo) {
+            //解析表预设参数
+            $mcls::parseConfig();
             //依赖注入
             $mcls::dependency([
                 //将当前 数据库实例 注入 数据表(模型) 类
                 "db" => $this
             ]);
         }
-        if ($initCurd) {
+        //if ($initCurd) {
             //初始化一个 curd 操作，并将 $mcls 表(模型)名称 作为 curd 操作对象 table
-            $this->curdInit($mcls::$name);
-        }
+        //    $this->curdInit($mcls::$name);
+        //}
         return $mcls;
+    }
+
+    /**
+     * 判断 数据表(模型) 是否存在
+     * @param String $model 表(模型)名称 如：Usr
+     * @return Bool
+     */
+    public function hasModel($model)
+    {
+        $mcls = $this->getModel($model);
+        return !empty($mcls);
     }
 
     /**
@@ -144,6 +154,19 @@ class Dbo
      */
     public function __get($key)
     {
+        /**
+         * $db->Usr 初始化一个 curd 操作 针对 数据表(模型) 类 Usr
+         * 链式调用 curd 操作，直至操作完成：
+         *      $db->Usr->join()->field([field1,field2])->where([...]);
+         *      $db->Usr->where([...])->select();
+         */
+        if ($this->hasModel($key)) {
+            if ($this->curdInited()!=true || $this->curd->model::$name!=$key) {
+                //仅当 curd 操作未初始化，或 当前 curd 操作为针对 此 数据表(模型) 类 时，重新初始化 curd
+                $this->curdInit($key);
+            }
+            return $this->curd;
+        }
         if (substr($key, 0, 3)=="new") {
             /**
              * 以 $db->newUsr 方式，获取一个 数据表(模型) 的实例
@@ -151,17 +174,9 @@ class Dbo
              * 返回 数据表(模型) 实例，相当于一条记录
              */
             $model = substr($key, 3);
-            $mcls = $this->getModelCls($model);
+            $mcls = $this->getModel($model);
             if (empty($mcls)) return null;
             return $mcls::new();
-        } else {
-            /**
-             * 以 $db->Usr 方式，获取一个 数据表(模型) 类
-             * 只可以调用此类的 静态方法
-             */
-            $mcls = $this->getModelCls($key);
-            if (empty($mcls)) return null;
-            return $mcls;
         }
     }
 
@@ -174,7 +189,7 @@ class Dbo
         if ($this->curdInited()==true) {
             //如果 已经有一个 curd 操作被初始化，则首先查找 curd 目标 table 表(模型) 的静态方法
             $model = $this->curd["table"];
-            $mcls = $this->getModelCls($model, false);
+            $mcls = $this->getModel($model, false);
             if (method_exists($mcls, $key)) {
                 //要调用的方法 在 表(模型)类 中存在
                 $rst = call_user_func_array([$mcls, $key], $args);
@@ -252,13 +267,45 @@ class Dbo
      * @param String $tbn 表(模型) 名称
      * @return $this
      */
-    public function curdInit($tbn="")
+    public function curdInit($model)
     {
-        $this->curd = [
-            "table" => $tbn,
-            "field" => "*"
-        ];
+        $model = $this->getModel($model);
+        //var_dump($model);
+        if (!empty($model)) {
+            $this->curd = new Curd($this, $model);
+            //var_dump($this->curd);
+        }
         return $this;
+    }
+
+    /**
+     * 销毁当前 curd 操作实例
+     * @return Dbo $this
+     */
+    public function curdDestory()
+    {
+        if ($this->curdInited()==true) {
+            $this->curd = null;
+        }
+        return $this;
+    }
+
+    /**
+     * 执行 curd 操作
+     * @param String $method medoo method
+     * @param Bool $initCurd 是否重新初始化 curd，默认 true
+     * @return Mixed
+     */
+    public function curdQuery($method, $initCurd=true)
+    {
+        if (!$this->curdInited()) return false;
+        $table = $this->curd["table"];
+        $field = $this->curd["field"];
+
+        $rst = $this->medoo($method, $table, $field);
+        if ($initCurd) $this->curdInit();
+        
+        return $rst;
     }
 
     /**
@@ -267,7 +314,7 @@ class Dbo
      */
     public function curdInited()
     {
-        return $this->curd["table"]!="";
+        return !empty($this->curd) && $this->curd instanceof Curd && $this->curd->db->key == $this->key;
     }
 
     /**
@@ -302,7 +349,7 @@ class Dbo
     public static function connect($opt=[])
     {
         $driver = self::getDriver($opt);
-        var_dump($driver);
+        //var_dump($driver);
         if (!empty($driver) && class_exists($driver)) {
             return $driver::connect($opt);
         }

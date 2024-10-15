@@ -32,7 +32,7 @@ class Sqlite extends Driver
     {
         //数据库文件
         $dbf = self::getDbPath($opt);
-        var_dump($dbf);
+        //var_dump($dbf);
         if (!file_exists($dbf)) return null;
         $dbf = path_fix($dbf);
         $pathinfo = pathinfo($dbf);
