@@ -233,16 +233,20 @@ class ModelConfiger
                     case "integer":
                     case "float":
                         $confi["jstype"] = $tpi;
-                        $confi["phptype"] = $tpi;
+                        $confi["phptype"] = $tpi=="integer" ? "Int" : "Number";
+                        if ($tpi=="integer" && !$confi["ai"] && !$confi["pk"] && ($confi["default"]==0 || $confi["default"]==1)){
+                            $confi["jstype"] = "boolean";
+                            $confi["phptype"] = "Bool";
+                        }
                         break;
                     case "numeric":
                         $confi["jstype"] = "float";
-                        $confi["phptype"] = "float";
+                        $confi["phptype"] = "Number";
                         break;
                     case "varchar":
                     case "text":
                         $confi["jstype"] = "string";
-                        $confi["phptype"] = "string";
+                        $confi["phptype"] = "String";
                         if (!is_null($confi["default"])) {
                             $dft = $confi["default"];
                             if (
@@ -258,7 +262,7 @@ class ModelConfiger
                                     "default" => $jdft
                                 ];
                                 $confi["jstype"] = $jtype;
-                                $confi["phptype"] = "array";
+                                $confi["phptype"] = "JSON";
                             }
                         }
                         break;

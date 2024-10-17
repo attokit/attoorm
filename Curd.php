@@ -50,6 +50,8 @@ class Curd
         $this->model = $model;
         $this->table = $model::$table;
         $this->join = $model::$join;
+        //curd 操作初始化完成后，立即处理 查询字段名数组
+        $this->field("*");
     }
 
     /**
@@ -103,11 +105,28 @@ class Curd
     /**
      * 构造 medoo 查询参数
      * 指定要返回值的 字段名 or 字段名数组 
+     * 
+     * medoo return data mapping 可构造返回的记录数据格式
+     *      字段名数组，自动添加 输出格式 数据表(模型) 预定义的 字段类型：
+     *          $field = [ "fieldname [JSON]", "tablename.fieldname [Int]", ... ]
+     * 
+     * 
      * @param Mixed $field 与 medoo field 参数格式一致
      * @return Curd $this
      */
     public function field($field="*")
     {
+        if (is_notempty_str($field)) {
+            if ($field=="*") {
+                $field = $this->addPhpTypeToFieldNameAll();
+            } else {
+                $field = $this->addPhpTypeToFieldName($field);
+            }
+        } else if (is_notempty_arr($field)) {
+            $field = $this->addPhpTypeToFieldNameArr($field);
+        } else {
+            return $this;
+        }
         $this->field = $field;
         return $this;
     }
@@ -173,10 +192,107 @@ class Curd
         return $this;
     }
 
+    /**
+     * 为查询字段名数组 中的 字段名 增加 [字段类型]
+     * @param String $fdn 字段名  or  表名.字段名
+     * @return String 字段名 [类型]  or  表名.字段名 [类型]
+     */
+    protected function addPhpTypeToFieldName($fdn)
+    {
+        if ($fdn=="*") return $this->addPhpTypeToFieldNameAll();
+        $db = $this->db;
+        $model = $this->model;
+        $fds = $model::$fields;
+        $fdc = $model::$field;
+        if (strpos($fdn, ".")===false) {
+            //字段名  -->  字段名 [类型]
+            if (in_array($fdn, $fds)) {
+                //读取预设的 字段类型
+                $type = $fdc[$fdn]["phptype"];
+                if ($type!="String") {
+                    return $fdn." [".$type."]";
+                }
+            }
+        } else {
+            //表名.字段名  -->  表名.字段名 [类型]
+            $fda = explode(".", $fdn);
+            $tbn = $fda[0];
+            $nfdn = $fda[1];
+            $nmodel = $db->getModel(ucfirst($tbn));
+            if (!empty($nmodel)) {
+                $nfds = $nmodel::$fields;
+                $nfdc = $nmodel::$field;
+                if (in_array($nfdn, $nfds)) {
+                    //读取预设的 字段类型
+                    $ntype = $nfdc[$nfdn]["phptype"];
+                    if ($ntype!="String") {
+                        return $fdn." [".$ntype."]";
+                    }
+                }
+            }
+        }
+        return $fdn;
+    }
+
+    /**
+     * 以递归方式处理输入的 查询字段名数组
+     * @param Array $field 与 medoo field 参数格式一致
+     * @return Array 返回处理后的数组
+     */
+    protected function addPhpTypeToFieldNameArr($field=[])
+    {
+        if (!is_notempty_arr($field)) return $field;
+        $fixed = [];
+        foreach ($field as $k => $v) {
+            if (is_notempty_arr($v)) {
+                $fixed[$k] = $this->addPhpTypeToFieldNameArr($v);
+            } else if (is_notempty_str($v)) {
+                if ($v=="*") {
+                    $vs = $this->addPhpTypeToFieldNameAll();
+                    $fixed = array_merge($fixed, $vs);
+                } else {
+                    $v = $this->addPhpTypeToFieldName($v);
+                    $fixed = array_merge($fixed, [ $v ]);
+                }
+            } else {
+                $fixed = array_merge($fixed, [ $v ]);
+            }
+        }
+        return $fixed;
+    }
+
+    /**
+     * 将 * 转换为 $model::$fields
+     * @return Array [ 字段名 [类型], ... ]
+     */
+    protected function addPhpTypeToFieldNameAll()
+    {
+        $fds = $this->model::$fields;
+        return $this->addPhpTypeToFieldNameArr($fds);
+    }
+
+    /**
+     * 在执行查询之前，处理并返回最终 field 参数
+     *      必须包含 $model::$includes 数组中指定的 字段
+     * @return Array $field 与 medoo field 参数格式一致
+     */
+    public function parseField()
+    {
+        $field = $this->field;
+        $includes = $this->model::$includes;
+        $incs = $this->addPhpTypeToFieldNameArr($includes);
+        foreach ($incs as $i => $fi) {
+            if (!in_array($fi, $field)) {
+                $field[] = $fi;
+            }
+        }
+        return $field;
+    }
+
 
 
     /**
-     * 执行查询
+     * 执行 medoo 查询
      * 使用 __call 方法
      * @param String $method medoo 查询方法
      * @param Array $args 输入参数
@@ -190,6 +306,8 @@ class Curd
             //join
             $join = $this->parseJoin();
             $canJoin = $this->useJoin==true && !empty($join);
+            //field
+            $field = $this->parseField();
             //准备 medoo 方法参数
             $ps = [];
             $ps[] = $this->table;
@@ -203,13 +321,13 @@ class Curd
                 case "avg":
                 case "sum":
                     if ($canJoin) $ps[] = $join;
-                    $ps[] = $this->field;
+                    $ps[] = $field;
                     if (!empty($this->where)) $ps[] = $this->where;
                     break;
                 case "insert":
                 case "update":
-                    if (is_notempty_arr($args)) {
-                        $ps[] = $args;
+                    if (is_notempty_arr($args) && is_notempty_arr($args[0])) {
+                        $ps[] = array_shift($args);
                     } else {
                         return null;
                     }
@@ -223,7 +341,7 @@ class Curd
                     }
                     break;
                 case "replace":
-                    $ps[] = $this->field;
+                    $ps[] = $field;
                     if (!empty($this->where)) $ps[] = $this->where;
                     break;
                 case "has":
@@ -233,6 +351,16 @@ class Curd
             }
             //执行 medoo 方法
             $rst = $this->db->medoo($method, ...$ps);
+
+            //包裹 查询结果
+            $rst = $this->model::wrap($rst, $method, $this);
+
+            //销毁当前 curd 操作
+            $unset = true;
+            if (is_notempty_arr($args) && is_bool($args[0])) {
+                $unset = array_unshift($args);
+            }
+            if ($unset) $this->db->curdDestory();
             
             return $rst;
         }

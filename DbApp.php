@@ -6,6 +6,7 @@
 namespace Atto\Orm;
 
 use Atto\Box\App;
+use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
 
 class DbApp extends App 
@@ -41,11 +42,18 @@ class DbApp extends App
 
     /**
      * 当前 dbapp 提供的数据库服务 初始化
+     * 在 DbApp 实例化后立即执行
      */
     protected function init() 
     {
         // 1    连接并创建数据库实例
         $this->initDb();
+
+
+        //缓存这个 DbApp 实例到 Orm::$APP
+        Orm::cacheApp($this);
+
+        return $this;
     }
 
     /**
@@ -57,21 +65,8 @@ class DbApp extends App
     {
         $dbns = $this->dbns();
         foreach ($dbns as $i => $dbn) {
-            $dbi = $this->db($dbn);
-            if (empty($dbi)) {
-                //还未创建数据库实例，则连接并创建
-                $opti = $this->fixDbPath($dbn);
-                if (empty($opti)) $opti = $this->dbOptions[$dbn];
-                $dbi = Dbo::connect($opti);
-                if ($dbi instanceof Dbo) {
-                    //依赖注入
-                    $dbi->dependency([
-                        //将当前 dbapp 注入 数据库实例
-                        "app" => $this,
-                    ]);
-                    $this->dbs[$dbn] = $dbi;
-                }
-            }
+            //如果还未创建数据库实例的，连接数据库，创建并数据库实例
+            $this->dbConnect($dbn);
         }
         return $this;
     }
@@ -84,8 +79,11 @@ class DbApp extends App
      */
     public function __get($key)
     {
+        /**
+         * $app->mainDb
+         * 获取当前 DbApp 下的数据库实例
+         */
         if (substr($key, -2)=="Db") {
-            //以 $this->nameDb 形式访问已创建的数据库实例
             $dbn = substr($key, 0, -2);
             return $this->db($dbn);
         }
@@ -96,6 +94,36 @@ class DbApp extends App
     /**
      * 数据库工具
      */
+
+    /**
+     * 连接数据库，创建并返回数据库实例
+     * @param String $dbn 数据库名称 $this->dbOptions 包含的键名
+     * @return Dbo instance || null
+     */
+    public function dbConnect($dbn)
+    {
+        $dbi = $this->db($dbn);
+        if (empty($dbi)) {
+            //还未创建数据库实例，则连接并创建
+            $opti = $this->fixDbPath($dbn);
+            if (empty($opti)) $opti = $this->dbOptions[$dbn];
+            $dbi = Dbo::connect($opti);
+            if ($dbi instanceof Dbo) {
+                //依赖注入
+                $dbi->dependency([
+                    //将当前 dbapp 注入 数据库实例
+                    "app" => $this,
+                    //注入数据库 键名
+                    "keyInApp" => $dbn,
+                ]);
+                $this->dbs[$dbn] = $dbi;
+                return $dbi;
+            } else {
+                return null;
+            }
+        }
+        return null;
+    }
 
     /**
      * 获取已创建的数据库实例
@@ -118,6 +146,27 @@ class DbApp extends App
     protected function dbns()
     {
         return array_keys($this->dbOptions);
+    }
+
+    /**
+     * 判断是否包含 Dbo 数据库
+     * @param String $dbn 数据库名称 $this->dbOptions 包含的键名
+     * @return Bool
+     */
+    public function hasDb($dbn)
+    {
+        return isset($this->dbOptions[$dbn]);
+    }
+
+    /**
+     * 判断数据库是否已经实例化
+     * @param String $dbn 数据库名称 $this->dbOptions 包含的键名
+     * @return Bool
+     */
+    public function dbConnected($dbn)
+    {
+        $db = $this->db($dbn);
+        return !empty($db) && $db instanceof Dbo;
     }
 
     /**

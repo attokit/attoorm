@@ -2,6 +2,7 @@
 /**
  * 数据库类 
  * 此类可直接操作数据库
+ * 单例模式，一次会话只实例化一次
  * 
  * 创建 Db 实例：
  *      $db = Dbo::connect([ Medoo Options ])
@@ -16,6 +17,7 @@ namespace Atto\Orm;
 
 use Atto\Orm\Orm;
 use Atto\Orm\DbApp;
+use Atto\Orm\Table;
 use Atto\Orm\Model;
 use Atto\Orm\Curd;
 use Medoo\Medoo;
@@ -31,6 +33,11 @@ class Dbo
 
     //默认的数据库文件存放路径 [app/appname]/db
     protected static $DBDIR = "db";
+
+    //缓存已实例化的 数据表实例
+    public $TABLES = [/*
+        "table name" => Table instance
+    */];
 
     /**
      * Db config
@@ -56,6 +63,8 @@ class Dbo
 
     //此数据库实例 挂载到的 dbapp 实例，即：$dbapp->mainDb == $this
     protected $app = null;
+    //此数据库实例在 dbapp 中的 键名，如：$app->mainDb  -->  main
+    public $keyInApp = "";
 
     /**
      * 构造 数据库实例
@@ -72,7 +81,7 @@ class Dbo
      * @param Array $di 要注入 数据库实例 的依赖对象，应包含：
      *  [
      *      "app" => 此 数据库实例 所关联到的 DbApp 实例
-     *      
+     *      "keyInApp" => 此数据库实例在 dbapp 中的 键名
      *  ]
      * @return void
      */
@@ -83,6 +92,10 @@ class Dbo
         if ($app instanceof DbApp) {
             $this->app = $app;
         }
+
+        //注入 此数据库实例在 dbapp 中的 键名
+        $this->keyInApp = $di["keyInApp"] ?? "";
+
 
         return $this;
     }
@@ -104,6 +117,19 @@ class Dbo
         }
         if ($xpath=="") return $info;
         return arr_item($info, $xpath);
+    }
+
+    /**
+     * 获取当前数据库所属 DbApp 实例下 其他数据库实例
+     * 调用 $app->fooDb
+     * @param String $dbn 在 DbApp 中定义的 dbOptions 参数的键名
+     * @return Dbo 数据库实例
+     */
+    public function getDbo($dbn)
+    {
+        if (!$this->app instanceof DbApp) return null;
+        $k = strtolower($dbn)."Db";
+        return $this->app->$k;
     }
 
     /**
@@ -129,10 +155,6 @@ class Dbo
                 "db" => $this
             ]);
         }
-        //if ($initCurd) {
-            //初始化一个 curd 操作，并将 $mcls 表(模型)名称 作为 curd 操作对象 table
-        //    $this->curdInit($mcls::$name);
-        //}
         return $mcls;
     }
 
@@ -201,6 +223,52 @@ class Dbo
                 }
             }
         }
+    }
+
+
+    /**
+     * table 操作
+     */
+    
+    /**
+     * 实例化数据表
+     * @param String $tbn table name
+     * @return Table instance  or  null
+     */
+    public function table($tbn)
+    {
+        if ($this->tableInsed($tbn)) return $this->TABLES[$tbn];
+        $tbcls = $this->tableCls($tbn);
+        if (empty($tbcls)) return null;
+        $tbo = new $tbcls($this);
+        $this->TABLES[$tbn] = $tbo;
+        return $tbo;
+    }
+
+    /**
+     * 判断数据表是否已实例化
+     * @param String $tbn table name
+     * @return Bool
+     */
+    public function tableInsed($tbn)
+    {
+        if (!isset($this->TABLES[$tbn])) return false;
+        $tbo = $this->TABLES[$tbn];
+        return $tbo instanceof Table;
+    }
+
+    /**
+     * 获取数据表 类全称
+     * @param String $tbn table name
+     * @return String table class name
+     */
+    public function tableCls($tbn)
+    {
+        $dbn = $this->name;
+        $app = $this->app->name;
+        $cls = Orm::cls("$app/table/$dbn/".ucfirst($tbn));
+        if (class_exists($cls)) return $cls;
+        return null;
     }
 
 
@@ -315,22 +383,6 @@ class Dbo
     public function curdInited()
     {
         return !empty($this->curd) && $this->curd instanceof Curd && $this->curd->db->key == $this->key;
-    }
-
-    /**
-     * 获取 模型(数据表) 类
-     * @param String $tbname 表名称
-     * @return Class 模型(数据表)类
-     */
-    public function table($tbname)
-    {
-        $dbname = $this->name;
-        //数据库名称 foo.bar --> foo\bar
-        $clsdbpre = str_replace(".", "\\", $dbname);
-        $clspre = NS."\\db\\model\\".$clsdbpre."\\";
-        $cls = Orm::cls("model/".ucfirst($tbname));
-        if (class_exists($cls)) return $cls;
-        return null; 
     }
 
     
