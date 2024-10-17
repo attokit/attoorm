@@ -46,6 +46,18 @@ class DbApp extends App
      */
     protected function init() 
     {
+        // 0    实例化一些必要的 DbApp 如：Uac, ...
+        $requiredApps = [
+            //这些 DbApp 是必要的
+            "Uac",
+        ];
+        if (!in_array($this->name, $requiredApps)) {
+            for ($i=0;$i<count($requiredApps);$i++) {
+                $apn = ucfirst($requiredApps[$i]);
+                Orm::$apn();
+            }
+        }
+
         // 1    连接并创建数据库实例
         $this->initDb();
 
@@ -80,6 +92,14 @@ class DbApp extends App
     public function __get($key)
     {
         /**
+         * $app->Main 首字母必须大写
+         * 访问当前 DbApp 下的数据库实例
+         */
+        if (str_upcase_start($key) && $this->hasDb(strtolower($key))) {
+            return $this->db(strtolower($key));
+        }
+
+        /**
          * $app->mainDb
          * 获取当前 DbApp 下的数据库实例
          */
@@ -106,6 +126,7 @@ class DbApp extends App
         if (empty($dbi)) {
             //还未创建数据库实例，则连接并创建
             $opti = $this->fixDbPath($dbn);
+            //var_dump($opti);
             if (empty($opti)) $opti = $this->dbOptions[$dbn];
             $dbi = Dbo::connect($opti);
             if ($dbi instanceof Dbo) {

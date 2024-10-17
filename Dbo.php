@@ -8,9 +8,16 @@
  *      $db = Dbo::connect([ Medoo Options ])
  * 依赖注入：
  *      $db->setDbApp($app)     关联到 DbApp
+ * 初始化一个 curd 操作，链式调用：
+ *      $db->Model->join(false)->field("*")->where([...])->limit([0,20])->order(["foo"=>"DESC"])->select();
  * 获取数据表(模型)类：
- *      $table = $db->Tablename
- * 
+ *      $model = $db->Model;
+ *      $conf = $model::$configer;
+ *      $name = $model::$name;
+ * 获取数据表(模型)实例，以 实例方式 调用 类方法/类属性
+ *      $table = $db->ModelTb;
+ *      $conf = $table->tbConfiger;
+ *      $name = $table->tbName;
  */
 
 namespace Atto\Orm;
@@ -45,7 +52,7 @@ class Dbo
     public $type = "";      //db type
     public $connectOptions = [];    //缓存的 medoo 连接参数
     public $name = "";
-    public $key = "";       //md5($db->name)
+    public $key = "";       //md5(path_fix($db->filepath))
     public $pathinfo = [];  //sqlite db file pathinfo
     public $config = null;  //在 config.json 中预定义的 数据库参数，Configer 实例
 
@@ -56,13 +63,19 @@ class Dbo
     protected $_medoo = null;
 
     /**
+     * 数据库实例 内部指针，指向当前操作的 model 类全称
+     * 后指定的 覆盖 之前指定的
+     */
+    protected $currentModel = "";
+
+    /**
      * Curd 操作类实例
      * 在每次 Curd 完成后 销毁
      */
-    protected $curd = null;
+    public $curd = null;
 
     //此数据库实例 挂载到的 dbapp 实例，即：$dbapp->mainDb == $this
-    protected $app = null;
+    public $app = null;
     //此数据库实例在 dbapp 中的 键名，如：$app->mainDb  -->  main
     public $keyInApp = "";
 
@@ -147,6 +160,9 @@ class Dbo
         $mcls = Orm::cls($dpre."/".$model);
         if (!class_exists($mcls)) return null;
         if (empty($mcls::$db) || !$mcls::$db instanceof Dbo) {
+            //var_dump($mcls." --> 1");
+            //类全称
+            $mcls::$cls = $mcls;
             //解析表预设参数
             $mcls::parseConfig();
             //依赖注入
@@ -176,30 +192,56 @@ class Dbo
      */
     public function __get($key)
     {
+        //var_dump($key);
         /**
-         * $db->Usr 初始化一个 curd 操作 针对 数据表(模型) 类 Usr
-         * 链式调用 curd 操作，直至操作完成：
-         *      $db->Usr->join()->field([field1,field2])->where([...]);
-         *      $db->Usr->where([...])->select();
+         * $db->Model 
+         * 将数据库实例内部指针 currentModel 指向 当前的 model 类
+         * 同时 初始化一个 针对此 model 的 curd 操作，准备执行 curd 操作
          */
         if ($this->hasModel($key)) {
+            $mcls = $this->getModel($key);
+            //指针指向 model 类全称
+            $this->currentModel = $mcls;
+            //准备 curd 操作
             if ($this->curdInited()!=true || $this->curd->model::$name!=$key) {
                 //仅当 curd 操作未初始化，或 当前 curd 操作为针对 此 数据表(模型) 类 时，重新初始化 curd
                 $this->curdInit($key);
             }
-            return $this->curd;
+            //返回 $db 自身，准备接收下一步操作指令
+            return $this;
         }
-        if (substr($key, 0, 3)=="new") {
+
+        /**
+         * 如果内部指针 currentModel 不为空
+         */
+        if ($this->currentModel!="") {
+            $model = $this->currentModel;
+
             /**
-             * 以 $db->newUsr 方式，获取一个 数据表(模型) 的实例
-             * 相当于 新建一条记录，但不写入数据库
-             * 返回 数据表(模型) 实例，相当于一条记录
+             * $db->Model->property 
+             * 访问 数据表(模型) 类属性 静态属性
              */
-            $model = substr($key, 3);
-            $mcls = $this->getModel($model);
-            if (empty($mcls)) return null;
-            return $mcls::new();
+            if (cls_hasp($model, $key, 'static,public')) {
+                return $model::$$key;
+            }
+
+            /**
+             * 如果 curd 操作已被初始化为 针对 此 model
+             */
+            //if ($this->curdInited && $this->curd->model == $model) {
+            //    $curd = $this->curd;
+                /**
+                 * $db->Model->curdProperty
+                 * 访问 curd 操作实例的 属性
+                 * !! 不推荐，推荐：$db->Model->curd->property
+                 */
+            //    if (property_exists($curd, $key)) {
+            //        return $curd->$key;
+            //    }
+            //}
+
         }
+        return null;
     }
 
     /**
@@ -207,22 +249,43 @@ class Dbo
      */
     public function __call($key, $args)
     {
-        // 1    $db->Table->find(...)
-        if ($this->curdInited()==true) {
-            //如果 已经有一个 curd 操作被初始化，则首先查找 curd 目标 table 表(模型) 的静态方法
-            $model = $this->curd["table"];
-            $mcls = $this->getModel($model, false);
-            if (method_exists($mcls, $key)) {
-                //要调用的方法 在 表(模型)类 中存在
-                $rst = call_user_func_array([$mcls, $key], $args);
-                if ($rst == $mcls) {
-                    //如果返回 表(模型) 类，则返回 数据库实例
+        /**
+         * 如果内部指针 currentModel 不为空
+         */
+        if ($this->currentModel!="") {
+            $model = $this->currentModel;
+            /**
+             * 如果 curd 操作已被初始化为 针对 此 model
+             * 优先执行 curd 操作
+             */
+            if ($this->curdInited() && $this->curd->model == $model) {
+                $curd = $this->curd;
+                /**
+                 * $db->Model->where() 
+                 * 执行 curd 操作
+                 * 返回 curd 操作实例  or  操作结果
+                 */
+                if (method_exists($curd, $key)) {
+                    return $this->curd->$key(...$args);
+                }
+            }
+
+            /**
+             * $db->Model->func()
+             * 调用 数据表(模型) 类方法 静态方法
+             */
+            if (cls_hasm($model, $key, "static,public")) {
+                $rst = $model::$key(...$args);
+                if ($rst == $model) {
+                    //如果方法返回 数据表(模型) 类，则返回 $db 自身，等待下一步操作
                     return $this;
                 } else {
                     return $rst;
                 }
             }
         }
+        
+        return null;
     }
 
 

@@ -37,7 +37,7 @@ class Sqlite extends Driver
         $dbf = path_fix($dbf);
         $pathinfo = pathinfo($dbf);
         $dbname = $pathinfo["filename"];
-        $dbkey = "DB_".md5($dbname);
+        $dbkey = "DB_".md5(path_fix($dbf));
         //检查是否存在缓存的数据库实例
         if (isset(Dbo::$CACHE[$dbkey]) && Dbo::$CACHE[$dbkey] instanceof Dbo) {
             return Dbo::$CACHE[$dbkey];

@@ -31,58 +31,17 @@ class Orm
          * 返回 DbApp 实例
          */
         if (Orm::hasApp($key)) {
+            //已实例化的，直接返回
             if (Orm::appInsed($key)) return Orm::$APP[$key];
+            //实例化 DbApp
             $cls = cls("app/$key");
             if (!class_exists($cls)) return null;
-            return new $cls();
+            $app = new $cls();
+            //缓存
+            Orm::cacheApp($app);
+            //返回 DbApp 实例
+            return $app;
         }
-        /**
-         * Orm::AppDbn()        返回 DbApp 实例中 Dbo 数据库实例
-         * Orm::Dbn()           == Orm::[当前App]Dbn()
-         * Orm::AppDbnModel()   返回 DbApp 实例中 Dbo 数据库实例中 数据表(模型) 类全称
-         * Orm::DbnModel()      == Orm::[当前App]DbnModel()
-         * Orm::Model()         == Orm::[当前App][Main]Model()
-         * 
-         * Orm::AppDbnModel(useJoin true|false)    返回 DbApp 实例中 Dbo 数据库实例中 针对 数据表(模型) 的 curd 操作实例
-         */
-        $ks = strtosnake($key, "-");    //FooBar --> foo-bar
-        $ks = explode("-", $ks);
-        $ks = array_map(function($ki) {return ucfirst($ki);}, $ks);
-        //if (count($ks)>1) {
-            //获取 DbApp 实例
-            if (Orm::hasApp($ks[0])!=true) {
-                //可以省略 appname 使用 Request::$current->app
-                $apn = ucfirst(Request::$current->app);
-                if (Orm::hasApp($apn)!=true) return null;
-            } else {
-                $apn = array_shift($ks);
-            }
-            $app = Orm::$apn();
-            if (!$app instanceof DbApp) return null;
-            if (empty($ks)) return $app;
-            //获取 Dbo 实例
-            if ($app->hasDb(strtolower($ks[0]))!=true) {
-                //当 dbn 为 main 时，可以省略
-                $dbn = "main";
-            } else {
-                $dbn = array_shift($ks);
-            }
-            $dbk = strtolower($dbn)."Db";   //$app->mainDb
-            $dbo = $app->$dbk;
-            if (!$dbo instanceof Dbo) return null;
-            if (empty($ks)) return $dbo;
-            //获取 数据表(模型) 类全称
-            $mdn = array_shift($ks);
-            $mdo = $dbo->getModel($mdn);
-            if (!class_exists($mdo) || !is_subclass_of($mdo, Orm::cls("Model"))) return null;
-            if (empty($args)) return $mdo;
-            //当传入 bool 参数时，返回 针对 数据表(模型) 的 curd 操作实例
-            $useJoin = is_bool($args[0]) ? $args[0] : true;
-            $curd = $dbo->$mdn;
-            $curd->join($useJoin);
-            return $curd;
-
-        //}
 
         return null;
     }

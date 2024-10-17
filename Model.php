@@ -24,6 +24,9 @@ class Model
      */
     public static $db = null;
 
+    //此 数据表(模型) 类全称
+    public static $cls = "";
+
     /**
      * 数据表 预设参数
      * 子类覆盖
@@ -94,19 +97,24 @@ class Model
      */
     public function __get($key)
     {
-        //$rs->fieldname 返回字段值
-        if (static::hasField($key)) {
-            return $this->context[$key];
+        /**
+         * $rs->fieldname
+         * 以属性方式 访问 当前 数据表记录实例的字段值
+         */
+        if (static::hasField($key) || isset($this->context[$key])) {
+            return $this->context[$key] ?? null;
         }
 
-        //$rs->Modelname 返回 数据表(模型) 类
-        if (static::$db instanceof Dbo && static::$db->hasModel($key)) {
-            return static::$db->getModelCls($key, false);
-        }
+        //要求此 数据表(模型) 类必须经过初始化
+        if (!static::$db instanceof Dbo) return null;
 
-        //$rs->Model 返回当前 数据表(模型) 类
-        if ($key=="Model") {
-            return static::cls();
+        /**
+         * $rs->Model
+         * 相当于 $db->Model
+         */
+        if ($key=="Model" || $key==static::$name) {
+            $tbn = ucfirst(static::$name);
+            return static::$db->$tbn;
         }
 
         return null;
@@ -129,6 +137,7 @@ class Model
     public static function parseConfig()
     {
         $cls = static::cls();
+        //var_dump($cls." --> 2");
         //使用 ModelConfiger 解析表预设
         static::$configer = new ModelConfiger($cls);
         return $cls;
@@ -139,7 +148,6 @@ class Model
      * @param Array $di 要注入 模型(表) 类的依赖对象，应包含：
      *  [
      *      "db" => 此 模型(表) 所在的数据库实例
-     *      
      *  ]
      * @return String 类全称
      */
@@ -183,6 +191,16 @@ class Model
         //... 子类实现
 
         return true;
+    }
+
+    /**
+     * 创建一个 数据表(模型) 实例
+     * 用于以实例方式调用 类方法
+     * @return Model 实例
+     */
+    public static function ___ins()
+    {
+        return new static([]);
     }
 
     /**
