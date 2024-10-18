@@ -16,6 +16,7 @@ namespace Atto\Orm;
 use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
 use Atto\Orm\ModelSet;
+use Atto\Orm\model\Configer;
 
 class Model 
 {
@@ -41,11 +42,19 @@ class Model
         //...
     ];
     //字段 meta 数据
-    public static $meta = [];
+    public static $meta = [
+        "fieldname" => ["产品编码", "此库存成品SKU的产品编码，在系统中唯一", 10],
+    ];
+    //特殊字段参数
+    public static $special = [
+
+    ];
     //关联表预设，medoo 方法的 join 参数形式
     public static $join = [
 
     ];
+    //默认每次查询是否使用 join 表
+    public static $useJoin = false;
     //每次查询必须包含的字段
     public static $includes = ["id","enable"];
 
@@ -53,9 +62,9 @@ class Model
     public static $configer = null;
 
     //通过解析上方预设参数 得到的 config 数据
-    public static $fields = [];     //全部字段名数组
-    public static $field = [];      //各字段 属性
-    public static $default = [];    //各字段 默认值
+    //public static $fields = [];     //全部字段名数组
+    //public static $field = [];      //各字段 属性
+    //public static $default = [];    //各字段 默认值
 
 
 
@@ -131,19 +140,6 @@ class Model
      */
 
     /**
-     * 解析 数据表(模型) 预设参数
-     * @return String 类全称
-     */
-    public static function parseConfig()
-    {
-        $cls = static::cls();
-        //var_dump($cls." --> 2");
-        //使用 ModelConfiger 解析表预设
-        static::$configer = new ModelConfiger($cls);
-        return $cls;
-    }
-
-    /**
      * 依赖注入
      * @param Array $di 要注入 模型(表) 类的依赖对象，应包含：
      *  [
@@ -160,6 +156,19 @@ class Model
         }
 
         return static::cls();
+    }
+
+    /**
+     * 解析 数据表(模型) 预设参数
+     * @return String 类全称
+     */
+    public static function parseConfig()
+    {
+        $cls = static::$cls;
+        //var_dump($cls." --> 2");
+        //使用 model\Configer 解析表预设
+        static::$configer = new Configer($cls);
+        return $cls;
     }
 
     /**

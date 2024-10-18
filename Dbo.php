@@ -163,13 +163,13 @@ class Dbo
             //var_dump($mcls." --> 1");
             //类全称
             $mcls::$cls = $mcls;
-            //解析表预设参数
-            $mcls::parseConfig();
             //依赖注入
             $mcls::dependency([
                 //将当前 数据库实例 注入 数据表(模型) 类
                 "db" => $this
             ]);
+            //解析表预设参数
+            $mcls::parseConfig();
         }
         return $mcls;
     }

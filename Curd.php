@@ -7,8 +7,10 @@
 
 namespace Atto\Orm;
 
+use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
 use Atto\Orm\Model;
+use Atto\Orm\curd\JoinParser;
 use Medoo\Medoo;
 
 class Curd 
@@ -42,6 +44,13 @@ class Curd
     protected $debug = false;
 
     /**
+     * 使用 curd 参数处理工具类
+     */
+    public $joinParser = null;
+    public $columnParser = null;
+    public $whereParser = null;
+
+    /**
      * 构造 curd 操作实例
      * @param Dbo $db 数据库实例
      * @param String $model 要执行 curd 的 数据表(模型) 类全称
@@ -52,9 +61,13 @@ class Curd
         $this->db = $db;
         $this->model = $model;
         $this->table = $model::$table;
-        $this->join = $model::$join;
+        
+        //使用 curd 参数处理工具来，初始化 curd 参数
+        $this->joinParser = new JoinParser($this);
+
+        //$this->join = $model::$join;
         //curd 操作初始化完成后，立即处理 查询字段名数组
-        $this->field("*");
+        //$this->field("*");
     }
 
     /**
