@@ -504,7 +504,7 @@ class Configer
             $spc = $model::$special;
             
             $spfs = explode(",", "hideintable,hideinform,sort,filter,search,money,bool");
-            $isks = explode(",", "showInTable,showInForm,sortable,filterable,searchable,isMoney,isSwitch");
+            $isks = explode(",", "showInTable,showInForm,sortable,filterable,searchable,isMoney,isBool");
             foreach ($spfs as $i => $ki) {
                 $arr = $spc[$ki] ?? [];
                 $inarr = in_array($fdn, $arr);
@@ -525,7 +525,11 @@ class Configer
                 }
             }
 
-            if ($conf["isSwitch"]) {
+            if ($fdn=="enable") {
+                $conf["isBool"] = true;
+            }
+            if ($conf["isBool"]) {
+                $conf["jstype"] = "boolean";
                 $conf["phptype"] = "Bool";
             }
             if ($conf["isJson"]) {
