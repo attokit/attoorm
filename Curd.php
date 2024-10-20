@@ -11,6 +11,7 @@ use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
 use Atto\Orm\Model;
 use Atto\Orm\curd\JoinParser;
+use Atto\Orm\curd\ColumnParser;
 use Medoo\Medoo;
 
 class Curd 
@@ -28,15 +29,15 @@ class Curd
     //curd 操作针对的 table 表名称
     public $table = "";
     //表关联，可以在 模型(数据表)类中 预定义
-    public $join = [
+    //public $join = [
         /*"[<]table" => [
             "pid" => "pid"
         ]*/
-    ];
+    //];
     //是否 join 关联表
-    public $useJoin = false;
+    //public $useJoin = false;
     //要返回值的 字段名 []
-    public $field = "*";
+    //public $field = "*";
     //where 参数
     public $where = [];
 
@@ -62,8 +63,9 @@ class Curd
         $this->model = $model;
         $this->table = $model::$table;
         
-        //使用 curd 参数处理工具来，初始化 curd 参数
+        //使用 curd 参数处理工具，初始化/编辑 curd 参数
         $this->joinParser = new JoinParser($this);
+        $this->columnParser = new ColumnParser($this);
 
         //$this->join = $model::$join;
         //curd 操作初始化完成后，立即处理 查询字段名数组
@@ -79,51 +81,32 @@ class Curd
     {
         $db = $this->db;
         $model = $this->model;
+        $cfg = $model::$configer;
         $table = $this->table;
-        $field = $this->field;
         return 
             $db instanceof Dbo &&
             class_exists($model) &&
             $table!="" && 
-            $table==$model::$table && 
-            (
-                is_notempty_str($field) ||
-                is_notempty_arr($field)
-            );
+            $table==$cfg->table;
     }
 
     /**
-     * 是否连接查询关联表
-     * @param Mixed $join 参数 默认 true
-     *      Bool    开启/关闭 join table
-     *      String  like: '[>]table' 从 $model::$join 参数中 挑选 相应参数
-     *      Array   重新指定 join 参数
+     * 构造 medoo 查询参数
+     * join 关联表查询参数
+     * 符合 medoo join 参数形式
+     * 调用 $this->joinParser->setParam() 方法
+     * 
+     * @param Mixed
+     *      Bool        开启/关闭 join table
+     *      String, ... like: '[>]table' 从 $model::$join 参数中 挑选 相应参数
+     *      Array       重新指定 join 参数
      * @return Curd $this
      */
-    public function join($join=true, ...$jtbs)
+    public function join(...$args)
     {
-        if (is_bool($join)) {
-            $this->useJoin = $join;
-        } else {
-            if (is_string($join)) {
-                $jtbs = array_unshift($jtbs, $join);
-                $this->useJoin = $jtbs;
-            } else if (is_array($join)) {
-                $this->useJoin = $join;
-            } else {
-                $this->useJoin = true;
-            }
-        }
-
-        //自动添加 join 表全部字段名 到 $this->field 查询字段名数组
-        $tbs = $this->getJoinTables();
-        if (!empty($tbs)) {
-            $field = ["*"];
-            foreach ($tbs as $i => $tbn) {
-                $field[$tbn] = [$tbn.".*"];
-            }
-            //var_dump($field);
-            $this->field($field);
+        $jp = $this->joinParser;
+        if ($jp instanceof JoinParser) {
+            $jp->setParam(...$args);
         }
 
         return $this;
@@ -131,92 +114,25 @@ class Curd
     public function nojoin() {return $this->join(false);}
 
     /**
-     * 处理关联表 join 参数
-     * 根据 $this->useJoin 参数：
-     *      true|false      直接返回 $this->model::$join
-     *      array(string)   从 $model::$join 参数中查找并返回相应的 table 设置
-     *      array(associate)    替换 $model::$join 参数
-     * @return Array join 参数
-     */
-    public function parseJoin()
-    {
-        $mjoin = $this->model::$join;
-        $mjoin = empty($mjoin) ? [] : $mjoin;
-        $join = $this->useJoin;
-        if (is_bool($join)) {
-            return $mjoin;
-        } else if (is_array($join)) {
-            if (is_indexed($join)) {
-                $nj = [];
-                for ($i=0;$i<count($join);$i++) {
-                    $jik = $join[$i];
-                    if (isset($mjoin[$jik])) {
-                        $nj[$jik] = $mjoin[$jik];
-                    }
-                }
-                return $nj;
-            } else {
-                return $join;
-            }
-        } else {
-            return $mjoin;
-        }
-    }
-
-    /**
-     * 从 join 参数计算所有关联表 用于自动添加查询字段到 $this->field 参数
-     * @return Array [ table name, ... ]
-     */
-    public function getJoinTables()
-    {
-        $join = $this->parseJoin();
-        if (empty($join)) return [];
-        $tbs = array_keys($join);
-        $tbs = array_map(function($i) {
-            $ia = explode("]", $i);
-            return $ia[1] ?? $i;
-        }, $tbs);
-        return $tbs;
-    }
-
-    /**
      * 构造 medoo 查询参数
      * 指定要返回值的 字段名 or 字段名数组 
+     * 符合 medoo column 参数形式
+     * 调用 $this->columnParser->setParam() 方法
      * 
-     * medoo return data mapping 可构造返回的记录数据格式
-     *      字段名数组，自动添加 输出格式 数据表(模型) 预定义的 字段类型：
-     *          $field = [ "fieldname [JSON]", "tablename.fieldname [Int]", ... ]
-     *          $field = func_get_args()
-     * 
-     * 
-     * @param Mixed $field 与 medoo field 参数格式一致
+     * @param Mixed
+     *      "*"
+     *      "field name","table.field",...
+     *      [ "*", "table.*", "fieldname [JSON]", "tablename.fieldname [Int]", ... ]
+     *      [ "table.*", "map" => [ "fieldname [JSON]", "tablename.fieldname [Int]", ... ] ]
      * @return Curd $this
      */
-    public function field(...$args)
+    public function column(...$args)
     {
-        if (empty($args)) {
-            $field = ["*"];
-        } else if (count($args)==1) {
-            $field = is_array($args[0]) ? $args[0] : $args;
-        } else {
-            $field = [];
-            for ($i=0;$i<count($args);$i++) {
-                $argi = $args[$i];
-                if (is_string($argi)) {
-                    $field[] = $argi;
-                } else if (is_array($argi)) {
-                    $field = array_merge($field, $argi);
-                } else {
-                    continue;
-                }
-            }
+        $cp = $this->columnParser;
+        if ($cp instanceof ColumnParser) {
+            $cp->setParam(...$args);
         }
-        if (is_notempty_arr($field)) {
-            $field = $this->addPhpTypeToFieldNameArr($field);
-        } else {
-            return $this;
-        }
-        $this->field = $field;
+
         return $this;
     }
 
@@ -282,118 +198,6 @@ class Curd
     }
 
     /**
-     * 为查询字段名数组 中的 字段名 增加 [字段类型]
-     * @param String $fdn 字段名  or  表名.字段名
-     * @return String 表名.字段名 [类型]
-     */
-    protected function addPhpTypeToFieldName($fdn)
-    {
-        if ($fdn=="*") return $this->addPhpTypeToFieldNameAll();
-        if (substr($fdn, -2)==".*") {
-            // table.*
-            $mdn = ucfirst(str_replace(".*","",$fdn));
-            return $this->addPhpTypeToFieldNameAll($mdn);
-        }
-        $db = $this->db;
-        $model = $this->model;
-        $fds = $model::$fields;
-        $fdc = $model::$field;
-        $useJoin = $this->useJoin!==false;
-        if (strpos($fdn, ".")===false) {
-            //字段名  -->  表名.字段名 [类型]
-            if (in_array($fdn, $fds)) {
-                //读取预设的 字段类型
-                $type = $fdc[$fdn]["phptype"];
-                //if ($useJoin) $fdn = $model::$table.".".$fdn." (".$model::$table."_".$fdn.")";
-                if ($useJoin) $fdn = $model::$table.".".$fdn;
-                if ($type!="String") {
-                    return $fdn." [".$type."]";
-                }
-            }
-        } else {
-            //表名.字段名  -->  表名.字段名 [类型]
-            $fda = explode(".", $fdn);
-            $tbn = $fda[0];
-            $nfdn = $fda[1];
-            $nmodel = $db->getModel(ucfirst($tbn));
-            if (!empty($nmodel)) {
-                $nfds = $nmodel::$fields;
-                $nfdc = $nmodel::$field;
-                if (in_array($nfdn, $nfds)) {
-                    //读取预设的 字段类型
-                    $ntype = $nfdc[$nfdn]["phptype"];
-                    //$fdn = $fdn." (".str_replace(".","_",$fdn).")";
-                    if ($ntype!="String") {
-                        return $fdn." [".$ntype."]";
-                    }
-                }
-            }
-        }
-        return $fdn;
-    }
-
-    /**
-     * 以递归方式处理输入的 查询字段名数组
-     * @param Array $field 与 medoo field 参数格式一致
-     * @return Array 返回处理后的数组
-     */
-    protected function addPhpTypeToFieldNameArr($field=[])
-    {
-        if (!is_notempty_arr($field)) return $field;
-        $fixed = [];
-        foreach ($field as $k => $v) {
-            if (is_notempty_arr($v)) {
-                $fixed[$k] = $this->addPhpTypeToFieldNameArr($v);
-            } else if (is_notempty_str($v)) {
-                $v = $this->addPhpTypeToFieldName($v);
-                if (!is_array($v)) $v = [ $v ];
-                $fixed = array_merge($fixed, $v);
-            } else {
-                $fixed = array_merge($fixed, [ $v ]);
-            }
-        }
-        return $fixed;
-    }
-
-    /**
-     * 将 * 转换为 $model::$fields
-     * @param String $model 指定要查询的 fields 的 数据表(模型) 类，不指定则为当前 $this->model
-     * @return Array [ 表名.字段名 [类型], ... ]
-     */
-    protected function addPhpTypeToFieldNameAll($model=null)
-    {
-        $model = empty($model) ? $this->model : $this->db->getModel($model);
-        if (empty($model)) return [];
-        $useJoin = $this->useJoin!==false;
-        $fds = $model::$fields;
-        if ($useJoin) {
-            $fds = array_map(function ($i) use ($model) {
-                return $model::$table.".".$i;
-            }, $fds);
-        }
-        return $this->addPhpTypeToFieldNameArr($fds);
-    }
-
-    /**
-     * 在执行查询之前，处理并返回最终 field 参数
-     *      必须包含 $model::$includes 数组中指定的 字段
-     * @return Array $field 与 medoo field 参数格式一致
-     */
-    public function parseField()
-    {
-        $field = $this->field;
-        if (!is_array($field)) $field = [$field];
-        $includes = $this->model::$includes;
-        $incs = $this->addPhpTypeToFieldNameArr($includes);
-        foreach ($incs as $i => $fi) {
-            if (!in_array($fi, $field)) {
-                $field[] = $fi;
-            }
-        }
-        return $field;
-    }
-
-    /**
      * 在执行查询前，生成最终需要的 medoo 查询参数
      * 在查询时，可根据 method 组装成 medoo 方法的 参数 args[]
      * @return Array [ "table"=>"", "join"=>[], "field"=>[], "where"=>[] ]
@@ -402,8 +206,8 @@ class Curd
     {
         $args = [];
         $args["table"] = $this->table;
-        $args["join"] = $this->parseJoin();
-        $args["field"] = $this->parseField();
+        $args["join"] = $this->joinParser->getParam();      //$this->parseJoin();
+        $args["column"] = $this->columnParser->getParam();   //$this->parseField();
         $args["where"] = empty($this->where) ? [] : $this->where;
         return $args;
     }
@@ -426,9 +230,10 @@ class Curd
             $ag = $this->parseArguments();
             //join
             $join = $ag["join"] ?? [];
-            $canJoin = $this->useJoin!==false && !empty($join);
-            //field
-            $field = $ag["field"] ?? [];
+            $jp = $this->joinParser;
+            $canJoin = $jp->use!==false && $jp->available==true;    //$this->useJoin!==false && !empty($join);
+            //column
+            $column = $ag["column"] ?? [];
             //where
             $where = $ag["where"] ?? [];
             //准备 medoo 方法参数
@@ -444,7 +249,7 @@ class Curd
                 case "avg":
                 case "sum":
                     if ($canJoin) $ps[] = $join;
-                    $ps[] = $field;
+                    $ps[] = $column;
                     if (!empty($where)) $ps[] = $where;
                     break;
                 case "insert":
@@ -464,7 +269,7 @@ class Curd
                     }
                     break;
                 case "replace":
-                    $ps[] = $field;
+                    $ps[] = $column;
                     if (!empty($where)) $ps[] = $where;
                     break;
                 case "has":

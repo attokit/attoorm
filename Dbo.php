@@ -41,6 +41,9 @@ class Dbo
     //默认的数据库文件存放路径 [app/appname]/db
     protected static $DBDIR = "db";
 
+    //缓存已初始化的 数据表(模型) 类全称
+    public $initedModels = [];
+
     //缓存已实例化的 数据表实例
     public $TABLES = [/*
         "table name" => Table instance
@@ -54,7 +57,9 @@ class Dbo
     public $name = "";
     public $key = "";       //md5(path_fix($db->filepath))
     public $pathinfo = [];  //sqlite db file pathinfo
-    public $config = null;  //在 config.json 中预定义的 数据库参数，Configer 实例
+    //public $configer = [    //缓存 已初始化的 数据表(模型) 类的 configer 对象
+        //"table name" => $model::configer
+    //];
 
     //数据库 driver 类
     public $driver = "";    //数据库类型驱动类
@@ -74,9 +79,9 @@ class Dbo
      */
     public $curd = null;
 
-    //此数据库实例 挂载到的 dbapp 实例，即：$dbapp->mainDb == $this
+    //此数据库实例 挂载到的 dbapp 实例，即：$dbapp->Main == $this
     public $app = null;
-    //此数据库实例在 dbapp 中的 键名，如：$app->mainDb  -->  main
+    //此数据库实例在 dbapp 中的 键名，如：$app->Main  -->  main
     public $keyInApp = "";
 
     /**
@@ -153,14 +158,9 @@ class Dbo
      */
     public function getModel($model)
     {
-        if (!$this->app instanceof DbApp) return null;
-        $appname = $this->app->name;
-        $mpre = $appname."/model";
-        $dpre = $mpre."/".$this->name;
-        $mcls = Orm::cls($dpre."/".$model);
+        $mcls = $this->getModelCls($model);
         if (!class_exists($mcls)) return null;
-        if (empty($mcls::$db) || !$mcls::$db instanceof Dbo) {
-            //var_dump($mcls." --> 1");
+        if ($this->modelInited($model)!==true) {
             //类全称
             $mcls::$cls = $mcls;
             //依赖注入
@@ -170,8 +170,71 @@ class Dbo
             ]);
             //解析表预设参数
             $mcls::parseConfig();
+            //缓存 mcls
+            $this->initedModels[] = $mcls;
         }
         return $mcls;
+    }
+
+    /**
+     * 根据输入的 model name 获取 类全称
+     * @param String $model 名称
+     * @return String 类全称
+     */
+    public function getModelCls($model)
+    {
+        if (!$this->app instanceof DbApp) return null;
+        $appname = $this->app->name;
+        $mpre = $appname."/model";
+        $dpre = $mpre."/".$this->name;
+        $mcls = Orm::cls($dpre."/".ucfirst($model));
+        if (!class_exists($mcls)) return null;
+        return $mcls;
+    }
+
+    /**
+     * 获取所有定义的 数据表(模型) 类
+     * @param Bool $init 是否初始化这些类 默认 false
+     * @return Array [ 类全称, ... ]
+     */
+    public function getAllModels($init=false)
+    {
+        if (!$this->app instanceof DbApp) return [];
+        $app = $this->app;
+        $mdir = $app->path("model/".$this->name);
+        if (!is_dir($mdir)) return [];
+        $mclss = [];
+        $dh = @opendir($mdir);
+        while(($f=readdir($dh))!==false) {
+            if ($f=="." || $f=="..") continue;
+            if (is_dir($mdir.DS.$f)) continue;
+            if (substr($f, -4)!=EXT) continue;
+            $model = str_replace(EXT,"",$f);
+            $mcls = $this->getModelCls($model);
+            if (empty($mcls)) continue;
+            if ($init) {
+                $mclss[] = $this->getModel($model);
+            } else {
+                $mclss[] = $mcls;
+            }
+        }
+        return $mclss;
+    }
+
+    /**
+     * 获取所有定义的 数据表(模型) 类名称
+     * @param Bool $init 是否初始化这些类 默认 false
+     * @return Array [ 类名称, ... ]
+     */
+    public function getAllModelNames($init=false)
+    {
+        $mclss = $this->getAllModels($init);
+        if (empty($mclss)) return [];
+        $mns = array_map(function ($i) {
+            $ia = explode("\\", $i);
+            return array_pop($ia);
+        }, $mclss);
+        return $mns;
     }
 
     /**
@@ -181,8 +244,21 @@ class Dbo
      */
     public function hasModel($model)
     {
-        $mcls = $this->getModel($model);
+        $mcls = $this->getModelCls($model);
         return !empty($mcls);
+    }
+
+    /**
+     * 判断 数据表(模型) 类是否已经初始化
+     * @param String $model 表(模型)名称 如：Usr
+     * @return Bool
+     */
+    public function modelInited($model)
+    {
+        $mcls = $this->getModelCls($model);
+        if (!class_exists($mcls)) return false;
+        $inited = $this->initedModels;
+        return in_array($mcls, $inited) && !empty($mcls::$db) && $mcls::$db instanceof Dbo;
     }
 
     /**
@@ -241,6 +317,26 @@ class Dbo
             //}
 
         }
+
+        /**
+         * $db->api***
+         * 返回所有已初始化的 数据表(模型) api 数据
+         */
+        if (substr($key, 0,3)==="api") {
+            $api = [];
+            $mclss = $this->getAllModels(true);     //初始化所有 数据表(模型) 类
+            foreach ($mclss as $i => $mcls){
+                if (empty($mcls::$configer)) continue;
+                $mapi = $mcls::$configer->api;
+                if (empty($mapi)) continue;
+                $api = array_merge($api, $mapi);
+            }
+            //$db->api 返回所有已初始化的 数据表(模型) api 数据 数组
+            if ($key=="api") return $api;
+            //$db->apis 返回 api 名称数组
+            if ($key=="apis") return empty($api) ? [] : array_keys($api);
+        }
+
         return null;
     }
 

@@ -15,8 +15,8 @@ namespace Atto\Orm;
 
 use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
-use Atto\Orm\ModelSet;
 use Atto\Orm\model\Configer;
+use Atto\Orm\model\ModelSet;
 
 class Model 
 {
@@ -98,11 +98,13 @@ class Model
         $this->context = $data;
 
         $aif = static::aif();
-        $this->isNew = !isset($data[$aif]);
+        $this->isNew = !empty($data) && !isset($data[$aif]);
     }
 
     /**
      * __get
+     * @param String $key
+     * @return Mixed
      */
     public function __get($key)
     {
@@ -110,12 +112,43 @@ class Model
          * $rs->fieldname
          * 以属性方式 访问 当前 数据表记录实例的字段值
          */
-        if (static::hasField($key) || isset($this->context[$key])) {
+        if (/*static::hasField($key) || */isset($this->context[$key])) {
             return $this->context[$key] ?? null;
+        }
+
+        /**
+         * $rs->fooBar
+         * 获取 计算字段 值
+         */
+        if (in_array($key, static::$configer->getterFields)) {
+            $getter = $key."Getter";
+            if (method_exists($this, $getter)) {
+                return $this->$getter();
+            }
+        }
+
+        /**
+         * $rs->foo_bar_jaz  -->  $rs->foo["bar"]["jaz"]
+         * 以 arr_item 方法 获取 array 类型字段值 
+         */
+        if (strpos($key,"_")!==false && count($ka = explode("_",$key))>1) {
+            $fdn = array_shift($ka);
+            $fdv = $this->$fdn;
+            if (is_notempty_arr($fdv)) {
+                return arr_item($fdv, implode("/", $ka));
+            }
         }
 
         //要求此 数据表(模型) 类必须经过初始化
         if (!static::$db instanceof Dbo) return null;
+
+        /**
+         * $rs->db
+         * 返回 $model::$db
+         */
+        if ($key=="Db" || $key==ucfirst(static::$db->name)) {
+            return static::$db;
+        }
 
         /**
          * $rs->Model
@@ -126,7 +159,68 @@ class Model
             return static::$db->$tbn;
         }
 
+        /**
+         * $rs->Othermodel
+         * 访问 当前 数据库下 其他 数据表(模型) 类
+         * 相当于 $db->Other
+         */
+        if (static::$db->hasModel($key)) {
+            return static::$db->$key;
+        }
+
+        /**
+         * $rs->conf
+         * 访问 $model::$configer
+         */
+        if ($key=="conf") {
+            return static::$configer;
+        }
+
         return null;
+    }
+
+    /**
+     * __call
+     * @param String $method
+     * @param Array $args
+     * @return Mixed
+     */
+    public function __call($method, $args)
+    {
+        /**
+         * $rs->func 
+         * 调用 数据表(模型) 类方法 静态方法
+         */
+        //$model = static::
+    }
+
+    /**
+     * 输出 字段值
+     * $rs->ctx()               --> context[]
+     * $rs->ctx("id")           --> [ "id" => context["id"] ]
+     * $rs->ctx("id:foo")       --> [ "foo" => context["id"] ]
+     * $rs->ctx("psku_%:psku")  --> 输出所有 psku_*** 字段值 到 [ "psku" => [ "***" => context["psku_***"], ... ] ]
+     * $rs->ctx("id", "psku_name:alias", "extra")  -->
+     *  [
+     *      "id" => context["id"],
+     *      "alias" => context["psku"]["name"],
+     *      "extra" => context["extra"]
+     *  ]
+     * @param String $fields [ 字段名, ... ]
+     * @return Array [ field=>val, field=>val ]
+     */
+    public function ctx(...$fields)
+    {
+        $ctx = $this->context;
+        if (empty($fields)) return $ctx;
+        $rs = [];
+        foreach ($fields as $i => $fdn) {
+            $fda = explode(":", $fdn);
+            $rk = $fda[1] ?? $fda[0];
+            $k = $fda[0];
+            $rs[$rk] = $this->$k;
+        }
+        return $rs;
     }
 
 
@@ -227,6 +321,7 @@ class Model
     public static function wrap($rst, $method, &$curd)
     {
         $db = static::$db;  //数据库实例
+        $mcls = static::$cls;   //数据表(模型) 类全称，== static::class
         if ($rst instanceof \PDOStatement) {
             //通常 insert/update/delete 方法返回 PDOStatement
             if ($method=="insert") {
@@ -252,23 +347,23 @@ class Model
             } else {
                 return $rst;
             }
-        } else if (is_notempty_arr($rst)) {
+        } else if (is_array($rst)) {
             //返回的是 记录 / 记录集
+            if (empty($rst)) {
+                if ($method=="get") {
+                    return new static($rst);
+                } else {
+                    return new ModelSet($rst);
+                }
+            }
             if (is_indexed($rst)) {
                 //记录集 通常 select/rand 方法 返回记录集
                 //包裹为 ModelSet 记录集对象
-                $rst = array_map(function($rsi) {
-                    return new static($rsi);
-                }, $rst);
-                $mrs = new ModelSet($rst);
-                $mrs->db = $db;
-                $mrs->model = static::cls();
-                return $mrs;
+                return new ModelSet($mcls, $rst);
             } else if (is_associate($rst)) {
                 //单条记录 通常 get 方法 返回单条记录
                 //包裹为 Model 实例
-                $rst = new static($rst);
-                return $rst;
+                return new static($rst);
             }
         } else {
             return $rst;

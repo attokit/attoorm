@@ -52,6 +52,13 @@ abstract class Parser
     abstract public function setParam($param=null);
 
     /**
+     * 重置 curd 参数 到初始状态
+     * !! 子类必须实现 !!
+     * @return Parser $this
+     */
+    abstract public function resetParam();
+
+    /**
      * 执行 curd 操作前 返回处理后的 curd 参数
      * !! 子类必须实现 !!
      * @return Mixed curd 操作 medoo 参数，应符合 medoo 参数要求

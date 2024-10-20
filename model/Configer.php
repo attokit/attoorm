@@ -93,6 +93,32 @@ class Configer
         return $this;
     }
 
+    /**
+     * __get
+     * @param String $key 
+     * @return Mixed
+     */
+    public function __get($key)
+    {
+        /**
+         * $configer->foo  -->  $configer->context["foo"]
+         */
+        if (isset($this->context[$key])) return $this->context[$key];
+
+        /**
+         * $configer->fieldName  -->  $configer->context["field"]["foo"]
+         */
+        $fdc = $this->context["field"];
+        if (isset($fdc[$key]) || substr($key, -5)==="Field") {
+            $fdn = $key;
+            if (substr($key, -5)==="Field") $fdn = substr($key, 0, -5);
+            if (isset($fdc[$fdn])) return (object)$fdc[$fdn];
+        }
+        
+
+        return null;
+    }
+
 
 
     /**
@@ -109,7 +135,7 @@ class Configer
         $this->buildModelMeta();
         //获取字段列表，包含 计算字段 Getter
         $this->buildGetFields();
-        $this->buildGetGetterFields();
+        $this->buildGetGetters();
         //解析 join 关联表参数
         $this->buildJoin();
 
@@ -125,7 +151,11 @@ class Configer
             }
         }
 
+        //获取 默认值 数组
         $this->buildDefault();
+
+        //解析 API
+        $this->buildApi();
         
         return $this;
     }
@@ -145,7 +175,7 @@ class Configer
             "app" => $db->app->name,
             "db" => $db->name,
         ];
-        $ms = explode(",", "name,title,desc,xpath,table");
+        $ms = explode(",", "name,title,desc,xpath,table,includes");
         foreach ($ms as $i => $mi) {
             if (isset($model::$$mi)) {
                 $conf[$mi] = $model::$$mi;
@@ -201,7 +231,7 @@ class Configer
      * 
      * 则有计算字段 fooBar
      */
-    protected function buildGetGetterFields()
+    protected function buildGetGetters()
     {
         $conf = [
             "getterFields" => [],
@@ -231,9 +261,14 @@ class Configer
             foreach ($da as $i => $di) {
                 $dai = explode(" ", trim(explode("*", $di)[0]));
                 if (count($dai)<2) continue;
+                if (in_array($dai[0],["param","return"])) continue;
                 $confi[$dai[0]] = implode(" ",array_slice($dai, 1));
             }
-            $name = $confi["name"] ?? str_replace("Getter","", $k);
+            $name = $confi["name"] ?? "";
+            if (!is_notempty_str($name)) {
+                $name = str_replace("Getter","", $k);
+                $confi["name"] = $name;
+            }
             $confi["isGetter"] = true;
             $conf["getterFields"][] = $name;
             $conf["field"][$name] = $confi;
@@ -332,6 +367,7 @@ class Configer
                 ];
             }
         }
+
         return $this->buildSetContext([
             "join" => $conf,
             "field" => $fdc
@@ -349,12 +385,89 @@ class Configer
         $fc = $this->context["field"];
         $dft = [];
         foreach ($fc as $fdn => $fdc) {
-            if (is_null($fdc["default"])) continue;
+            if (!isset($fdc["default"]) || is_null($fdc["default"])) continue;
             $dft[$fdn] = $fdc["default"];
         }
         return $this->buildSetContext([
             "default" => $dft
         ]);
+    }
+
+    /**
+     * build 方法
+     * 解析 数据表(模型) 类/实例 Api
+     * 在 model 类中定义了 public [static] fooBarApi() 方法，
+     * 且 有注释：
+     *      /**
+     *       * api
+     *       * @role foo,bar 或 all
+     *       * @desc Api说明
+     *       * @param String $argname 参数说明
+     *       * ...
+     *       * @return Mixed 返回值说明
+     * 
+     * @return Configer $this
+     */
+    protected function buildApi()
+    {
+        $conf = [
+            "api" => [],
+            "apis" => [],
+            "modelApis" => []
+        ];
+        $model = $this->model;
+        $methods = cls_get_ms($model, function($mi) {
+            if (substr($mi->name, -3)==="Api") {
+                $doc = $mi->getDocComment();
+                if (strpos($doc, "* api")!==false || strpos($doc, "* Api")!==false) {
+                    return true;
+                }
+            }
+            return false;
+        }, "public");
+        if (empty($methods)) return $this->buildSetContext($conf);
+        //对找到的方法，进行处理
+        foreach ($methods as $k => $mi) {
+            $isStatic = $mi->isStatic();
+            $doc = $mi->getDocComment();
+            $doc = str_replace("\\r\\n", "", $doc);
+            $doc = str_replace("\\r", "", $doc);
+            $doc = str_replace("\\n", "", $doc);
+            $doc = str_replace("*\/", "", $doc);
+            $da = explode("* @", $doc);
+            array_shift($da);   //* getter
+            $confi = [
+                "name" => "",
+                "role" => "all",
+                "desc" => "",
+                "authKey" => "",    //用户 auth 数组中 如果包含 authKey 则有访问此 api 的权限
+                "isModel" => $isStatic, //静态方法 是 数据表 api 而不是 记录实例 api
+            ];
+            foreach ($da as $i => $di) {
+                $dai = explode(" ", trim(explode("*", $di)[0]));
+                if (count($dai)<2) continue;
+                if (!in_array($dai[0],["desc","role","name","title","authKey"])) continue;
+                $confi[$dai[0]] = implode(" ",array_slice($dai, 1));
+            }
+            $name = $confi["name"] ?? "";
+            if (!is_notempty_str($name)) {
+                $name = str_replace("Api","", $k);
+                $confi["name"] = $name;
+            }
+            if (is_string($confi["role"]) && $confi["role"]!="all") {
+                $confi["role"] = arr($confi["role"]);
+            }
+            $akey = str_replace("\\","-", str_replace("\\model","",substr(strtolower($model),10)));
+            $akey .= ($isStatic ? "-model-api-" : "-api-").$name;
+            $confi["authKey"] = $akey;
+            if ($isStatic) {
+                $conf["modelApis"][] = $akey;
+            } else {
+                $conf["apis"][] = $akey;
+            }
+            $conf["api"][$akey] = $confi;
+        }
+        return $this->buildSetContext($conf);
     }
 
     /**
@@ -442,10 +555,10 @@ class Configer
                         //$conf["isNumber"] = true;
                         $conf["jstype"] = $tpi;
                         $conf["phptype"] = $tpi=="integer" ? "Int" : "Number";
-                        if ($tpi=="integer" && !$conf["ai"] && !$conf["pk"] && ($conf["default"]==0 || $conf["default"]==1)){
-                            $conf["jstype"] = "boolean";
-                            $conf["phptype"] = "Bool";
-                        }
+                        //if ($tpi=="integer" && !$conf["ai"] && !$conf["pk"] && ($conf["default"]==0 || $conf["default"]==1)){
+                        //    $conf["jstype"] = "boolean";
+                        //    $conf["phptype"] = "Bool";
+                        //}
                         break;
                     case "numeric":
                         //$conf["isNumber"] = true;
@@ -513,15 +626,15 @@ class Configer
                 $conf[$isks[$i]] = $rev ? !$inarr : $inarr;
             }
 
-            $spfs2 = explode(",", "times,numbers,jsons,generators");
-            $isks2 = explode(",", "isTime,isNumber,isJson,isGenerator");
+            $spfs = explode(",", "times,numbers,jsons,generators");
+            $isks = explode(",", "isTime,isNumber,isJson,isGenerator");
             $pks = explode(",", "time,number,json,generator");
-            foreach ($spfs2 as $k => $kk) {
-                $arr2 = $spc[$kk] ?? [];
-                $inarr2 = isset($arr2[$fdn]);
-                $conf[$isks2[$k]] = $inarr2;
-                if ($inarr2) {
-                    $conf[$pks[$k]] = $arr2[$fdn];
+            foreach ($spfs as $k => $kk) {
+                $arr = $spc[$kk] ?? [];
+                $inarr = isset($arr[$fdn]);
+                $conf[$isks[$k]] = $inarr;
+                if ($inarr) {
+                    $conf[$pks[$k]] = $arr[$fdn];
                 }
             }
 
