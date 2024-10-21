@@ -16,6 +16,7 @@ namespace Atto\Orm;
 use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
 use Atto\Orm\model\Configer;
+use Atto\Orm\model\Exporter;
 use Atto\Orm\model\ModelSet;
 
 class Model 
@@ -71,10 +72,21 @@ class Model
     /**
      * 数据表(模型) 实例参数
      */
-    //记录内容
+    //数据表记录条目内容，不含 关联表 记录内容
     public $context = [];
+    //join 关联表 记录实例
+    public $joined = [
+        //"Tablename" => model instance,
+        //...
+    ];
     //是否新建 记录
     protected $isNew = false;
+
+    /**
+     * 依赖
+     */
+    //数据记录实例输出工具
+    public $exporter = null;
 
     //依赖：字段值转换对象 FieldConvertor 实例
     public $convertor = null;
@@ -88,17 +100,62 @@ class Model
     
     /**
      * 构造
-     * @param Array $data 记录内容
+     * 使用 $model::createIns() 方法创建 数据表记录实例
      * @return Model instance
      */
-    public function __construct($data=[])
+    public function __construct()
     {
-        $this->context = [];
-        //$data = arr_extend(static::$default, $data);
-        $this->context = $data;
+        
+    }
 
-        $aif = static::aif();
-        $this->isNew = !empty($data) && !isset($data[$aif]);
+    /**
+     * 构造
+     * 执行 constructFunc
+     */
+
+    /**
+     * 构造
+     * 根据 curd 返回的数据 创建 $rs->context 以及 join 关联表实例
+     * @param Array $data curd 操作返回的数据，可能包含关联表数据
+     * @return Model $this
+     */
+    protected function parseCurdRtnData($data=[])
+    {
+        //var_dump($data);
+        if (empty($data)) return $this;
+        $jtbs = static::$configer->join["tables"] ?? [];
+        $mdata = [];
+        $jdata = [];
+        if (empty($jtbs)) $mdata = $data;
+        foreach ($jtbs as $i => $tbn) {
+            $tbn = strtolower($tbn);
+            $jdi = [];
+            foreach ($data as $f => $v) {
+                if (substr($f, 0, strlen($tbn)+1)==$tbn."_") {
+                    $jdi[substr($f, strlen($tbn)+1)] = $v;
+                    //unset($data[$f]);
+                } else {
+                    $mdata[$f] = $v;
+                }
+            }
+            if (!empty($jdi)) {
+                $jdata[$tbn] = $jdi;
+            }
+        }
+        //var_dump($jdata);
+
+        //当前主表数据写入 context
+        $this->context = $mdata;
+        //创建 join 关联表 实例
+        if (!empty($jdata)) {
+            foreach ($jdata as $tbi => $tdi) {
+                $tbk = ucfirst($tbi);
+                $tcls = static::$db->$tbk->cls;
+                $this->joined[$tbk] = $tcls::createIns($tdi);
+            }
+        }
+        
+        return $this;
     }
 
     /**
@@ -109,35 +166,21 @@ class Model
     public function __get($key)
     {
         /**
-         * $rs->fieldname
-         * 以属性方式 访问 当前 数据表记录实例的字段值
+         * 通过 $rs->exporter->export($key) 方法，返回数据记录 字段值/关联表字段值
+         * 
+         * $rs->fieldname       --> $rs->context["fieldname"]
+         * $rs->getterFunc      --> $rs->getterFuncGetter()
+         * $rs->_               --> $rs->exporter->export()
+         * $rs->Table           --> $rs->joined["Table"] 关联表实例
+         * $rs->table_          --> $rs->joined["Table"]->exporter->export()
+         * $rs->table_foo_bar   --> $rs->joined["Table"]->foo_bar
          */
-        if (/*static::hasField($key) || */isset($this->context[$key])) {
-            return $this->context[$key] ?? null;
+        $exper = $this->exporter;
+        if ($exper instanceof Exporter) {
+            $rst = $exper->export($key);
+            if (!is_null($rst)) return $rst;
         }
 
-        /**
-         * $rs->fooBar
-         * 获取 计算字段 值
-         */
-        if (in_array($key, static::$configer->getterFields)) {
-            $getter = $key."Getter";
-            if (method_exists($this, $getter)) {
-                return $this->$getter();
-            }
-        }
-
-        /**
-         * $rs->foo_bar_jaz  -->  $rs->foo["bar"]["jaz"]
-         * 以 arr_item 方法 获取 array 类型字段值 
-         */
-        if (strpos($key,"_")!==false && count($ka = explode("_",$key))>1) {
-            $fdn = array_shift($ka);
-            $fdv = $this->$fdn;
-            if (is_notempty_arr($fdv)) {
-                return arr_item($fdv, implode("/", $ka));
-            }
-        }
 
         //要求此 数据表(模型) 类必须经过初始化
         if (!static::$db instanceof Dbo) return null;
@@ -188,39 +231,27 @@ class Model
     public function __call($method, $args)
     {
         /**
-         * $rs->func 
-         * 调用 数据表(模型) 类方法 静态方法
+         * $rs->getterFunc()
+         * 调用 数据表(模型) 实例 getter 方法
          */
-        //$model = static::
+        $gfds = static::$configer->getterFields;
+        if (in_array($method, $gfds)) {
+            $getter = $method."Getter";
+            if (method_exists($this, $getter)) {
+                return $this->$getter();
+            }
+        }
     }
 
     /**
      * 输出 字段值
-     * $rs->ctx()               --> context[]
-     * $rs->ctx("id")           --> [ "id" => context["id"] ]
-     * $rs->ctx("id:foo")       --> [ "foo" => context["id"] ]
-     * $rs->ctx("psku_%:psku")  --> 输出所有 psku_*** 字段值 到 [ "psku" => [ "***" => context["psku_***"], ... ] ]
-     * $rs->ctx("id", "psku_name:alias", "extra")  -->
-     *  [
-     *      "id" => context["id"],
-     *      "alias" => context["psku"]["name"],
-     *      "extra" => context["extra"]
-     *  ]
-     * @param String $fields [ 字段名, ... ]
+     * 调用 $exporter->export() 方法 输出 字段内容
+     * @param String $args 查看 export 方法参数
      * @return Array [ field=>val, field=>val ]
      */
-    public function ctx(...$fields)
+    public function ctx(...$args)
     {
-        $ctx = $this->context;
-        if (empty($fields)) return $ctx;
-        $rs = [];
-        foreach ($fields as $i => $fdn) {
-            $fda = explode(":", $fdn);
-            $rk = $fda[1] ?? $fda[0];
-            $k = $fda[0];
-            $rs[$rk] = $this->$k;
-        }
-        return $rs;
+        return $this->exporter->export(...$args);
     }
 
 
@@ -259,10 +290,30 @@ class Model
     public static function parseConfig()
     {
         $cls = static::$cls;
-        //var_dump($cls." --> 2");
         //使用 model\Configer 解析表预设
         static::$configer = new Configer($cls);
         return $cls;
+    }
+
+    /**
+     * 根据 curd 返回数据 创建 数据表记录实例
+     * @param Array $data curd 返回的数据
+     * @return Model 数据表记录实例
+     */
+    public static function createIns($data=[])
+    {
+        $rs = new static();
+        //解析 $data
+        $rs->parseCurdRtnData($data);
+
+        //建立输出工具实例
+        $rs->exporter = new Exporter($rs);
+        
+        //是否新建记录，还未写入数据库
+        $idf = static::idf();
+        $rs->isNew = !empty($rs->context) && !isset($rs->context[$idf]);
+
+        return $rs;
     }
 
     /**
@@ -351,9 +402,9 @@ class Model
             //返回的是 记录 / 记录集
             if (empty($rst)) {
                 if ($method=="get") {
-                    return new static($rst);
+                    return static::createIns($rst);
                 } else {
-                    return new ModelSet($rst);
+                    return new ModelSet($mcls, $rst);
                 }
             }
             if (is_indexed($rst)) {
@@ -363,7 +414,7 @@ class Model
             } else if (is_associate($rst)) {
                 //单条记录 通常 get 方法 返回单条记录
                 //包裹为 Model 实例
-                return new static($rst);
+                return static::createIns($rst);
             }
         } else {
             return $rst;

@@ -47,13 +47,13 @@ class ModelSet implements \ArrayAccess, \IteratorAggregate, \Countable
             $this->context = [];
         } else if (!is_indexed($rs)) {
             $this->context = [];
-            $this->context[] = new $model($rs);
+            $this->context[] = $model::createIns($rs);
         } else {
             if ($rs[0] instanceof Model) {
                 $this->context = $rs;
             } else {
                 $this->context = array_map(function($rsi) use ($model) {
-                    return new $model($rsi);
+                    return $model::createIns($rsi);
                 }, $rs);
             }
         }

@@ -43,6 +43,8 @@ class Configer
     public $buildQueue = [
         "meta",     //解析 $model::$creation/$meta 参数，得到基本的 field 信息
         "special",  //解析 $model::$special 参数
+
+        "final",    //最后再次解析
     ];
 
 
@@ -505,7 +507,7 @@ class Configer
      */
     protected function buildFieldMeta()
     {
-        return $this->buildEachField("meta", function($fdn, $oconf, $model) {
+        return $this->buildEachField("meta", function($fdn, $oconf, $model) use (&$specs) {
             $conf = [
                 "type" => "varchar",
                 "jstype" => "string",
@@ -612,7 +614,7 @@ class Configer
             "special" => $this->model::$special
         ]);
 
-        return $this->buildEachField("special", function($fdn, $oconf, $model) {
+        return $this->buildEachField("special", function($fdn, $oconf, $model) use (&$specs) {
             $conf = [];
             $spc = $model::$special;
             
@@ -638,21 +640,88 @@ class Configer
                 }
             }
 
-            if ($fdn=="enable") {
-                $conf["isBool"] = true;
-            }
-            if ($conf["isBool"]) {
+            return $conf;
+        });
+    }
+
+    /**
+     * build 方法
+     * 对解析出的 各字段参数，再进行一次合并判断与处理
+     * 对 特殊格式的 字段，进行 记录/处理默认值 等
+     * @return Configer $this
+     */
+    protected function buildFieldFinal()
+    {
+        //处理后要写入 $this->context 的数据
+        $cf = [
+            //记录特殊格式的字段
+            "specialFields" => []
+        ];
+
+        $func = function ($fdn, $key, $out) {
+            if (!isset($out["specialFields"][$key])) $out["specialFields"][$key] = [];
+            if (!in_array($fdn, $out["specialFields"][$key])) $out["specialFields"][$key][] = $fdn;
+            return $out;
+        };
+
+        $this->buildEachField("final", function($fdn, $oconf, $model) use (&$cf, $func) {
+            //处理字段参数
+            $conf = [];
+            if ($fdn=="enable") $conf["isBool"] = true;
+            if ($oconf["isBool"]==true || (isset($conf["isBool"]) && $conf["isBool"]==true)) {
                 $conf["jstype"] = "boolean";
                 $conf["phptype"] = "Bool";
             }
-            if ($conf["isJson"]) {
-                if (isset($conf["json"]["default"])) {
-                    $conf["default"] = $conf["json"]["default"];
+            if ($oconf["isJson"]) {
+                if (isset($oconf["json"]["default"])) {
+                    $conf["default"] = $oconf["json"]["default"];
                 }
             }
+            /*if ($oconf["isTime"]==true && isset($oconf["time"]["default"])) {
+                //指定了 默认值的 time 类型字段
+                $ttp = $oconf["time"]["type"];
+                $dft = $oconf["time"]["default"];
+                $dv = null;
+                //根据指定的 time type 和 default 值 计算 实际 default 值
+                switch ($dft) {
+                    case "now" :
+
+                        break;
+                }
+                $conf["default"] = $oconf["json"]["default"];
+            }*/
+
+            //记录特殊字段
+            if ($oconf["isPk"]==true) $cf = $func($fdn, "pk", $cf);
+            if ($oconf["isId"]==true) $cf = $func($fdn, "id", $cf);
+            if ($oconf["phptype"]=="JSON") $cf = $func($fdn, "json", $cf);
+            if ($oconf["isTime"]==true) $cf = $func($fdn, "time", $cf);
+            if ($oconf["isMoney"]==true) $cf = $func($fdn, "money", $cf);
+            if ($oconf["isGenerator"]==true) $cf = $func($fdn, "gid", $cf);
 
             return $conf;
         });
+
+        //如果指定了用于 规格计算的 字段
+        $spec = $this->model::$special;
+        if (isset($spec["package"]) && is_notempty_arr($spec["package"])) {
+            $cf["package"] = $spec["package"];
+        }
+
+        //编辑 includes 每次查询必须包含的字段
+        $incs = $this->context["includes"];
+        $fds = $this->context["fields"];
+        $specs = $cf["specialFields"];
+        $ids = $specs["id"] ?? [];
+        $gids = $specs["gid"] ?? [];
+        if (!empty($gids)) $incs = array_merge($gids, $incs);
+        if (!empty($ids)) $incs = array_merge($ids, $incs);
+        if (in_array("enable", $fds) && !in_array("enable", $incs)) $incs[] = "enable";
+        $incs = array_merge(array_flip(array_flip($incs)));     //去重
+        $cf["includes"] = $incs;
+
+        //写入 context
+        return $this->buildSetContext($cf);
     }
 
     /**
