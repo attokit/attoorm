@@ -74,6 +74,8 @@ class Model
      */
     //数据表记录条目内容，不含 关联表 记录内容
     public $context = [];
+    //当记录修改时，此处保存初始数据
+    public $origin = [];
     //join 关联表 记录实例
     public $joined = [
         //"Tablename" => model instance,
@@ -100,18 +102,33 @@ class Model
     
     /**
      * 构造
-     * 使用 $model::createIns() 方法创建 数据表记录实例
+     * 使用 $model::create() 方法创建 数据表记录实例
      * @return Model instance
      */
-    public function __construct()
+    public function __construct($data=[])
     {
-        
-    }
+        //解析 $data
+        $this->initInsData($data);
 
-    /**
-     * 构造
-     * 执行 constructFunc
-     */
+        //建立输出工具实例
+        $this->exporter = new Exporter($this);
+        
+        //是否新建记录，还未写入数据库
+        $idf = static::idf();
+        $this->isNew = !empty($this->context) && !isset($this->context[$idf]);
+        
+        //创建事件订阅，订阅者为此 数据表记录实例
+        Orm::eventRegist($this);
+
+        //执行 可能存在的 initInsFooBar() 通常由 实现各种数据操作功能的 traits 引入
+        $this->initInsQueue();
+
+        //最后执行 initInsFinal() 方法，可由各 数据表(模型) 类自定义
+        $this->initInsFinal();
+
+        //触发 数据记录实例化 事件
+        Orm::eventTrigger("model-insed", $this);
+    }
 
     /**
      * 构造
@@ -119,10 +136,10 @@ class Model
      * @param Array $data curd 操作返回的数据，可能包含关联表数据
      * @return Model $this
      */
-    protected function parseCurdRtnData($data=[])
+    protected function initInsData($data=[])
     {
-        //var_dump($data);
         if (empty($data)) return $this;
+        //从 data 中分离出 join 关联表返回的数据
         $jtbs = static::$configer->join["tables"] ?? [];
         $mdata = [];
         $jdata = [];
@@ -142,21 +159,62 @@ class Model
                 $jdata[$tbn] = $jdi;
             }
         }
-        //var_dump($jdata);
 
         //当前主表数据写入 context
         $this->context = $mdata;
+        //写入主表初始数据 origin
+        $this->origin = $mdata;
+
         //创建 join 关联表 实例
         if (!empty($jdata)) {
             foreach ($jdata as $tbi => $tdi) {
                 $tbk = ucfirst($tbi);
                 $tcls = static::$db->$tbk->cls;
-                $this->joined[$tbk] = $tcls::createIns($tdi);
+                $this->joined[$tbk] = $tcls::create($tdi);
             }
         }
         
         return $this;
     }
+
+    /**
+     * 依次执行 可能存在的 initInsFooBar()
+     * 通常由 实现各种数据操作功能的 traits 引入
+     * @return Model $this
+     */
+    protected function initInsQueue()
+    {
+        $model = static::$cls;
+        $ms = cls_get_ms($model, function($mi) {
+            if (substr($mi->name, 0, 7)==="initIns") {
+                //必须是实例方法
+                if ($mi->isStatic()) return false;
+                $mk = substr($mi->name, 7);
+                return !in_array(strtolower($mk), ["data","queue","final"]);
+            }
+            return false;
+        }, "protected");
+        if (empty($ms)) return $this;
+        foreach ($ms as $n => $mi) {
+            $fn = $mi->name;
+            //执行这些方法
+            $this->$fn();
+        }
+        return $this;
+    }
+
+    /**
+     * 构造
+     * 在 数据记录实例构造操作最后 执行此方法
+     * !! 子类覆盖 !!
+     * @return Model $this
+     */
+    protected function initInsFinal()
+    {
+        //... 子类实现
+        return $this;
+    }
+    
 
     /**
      * __get
@@ -296,23 +354,14 @@ class Model
     }
 
     /**
-     * 根据 curd 返回数据 创建 数据表记录实例
-     * @param Array $data curd 返回的数据
-     * @return Model 数据表记录实例
+     * 静态调用 数据表记录实例 构造方法
+     * $model::create() 创建 数据表记录实例
+     * @param Array $data 数据表记录内容，通常由 curd 操作返回
+     * @return Model 一条数据记录实例
      */
-    public static function createIns($data=[])
+    public static function create($data=[])
     {
-        $rs = new static();
-        //解析 $data
-        $rs->parseCurdRtnData($data);
-
-        //建立输出工具实例
-        $rs->exporter = new Exporter($rs);
-        
-        //是否新建记录，还未写入数据库
-        $idf = static::idf();
-        $rs->isNew = !empty($rs->context) && !isset($rs->context[$idf]);
-
+        $rs = new static($data);
         return $rs;
     }
 
@@ -402,7 +451,7 @@ class Model
             //返回的是 记录 / 记录集
             if (empty($rst)) {
                 if ($method=="get") {
-                    return static::createIns($rst);
+                    return static::create($rst);
                 } else {
                     return new ModelSet($mcls, $rst);
                 }
@@ -414,7 +463,7 @@ class Model
             } else if (is_associate($rst)) {
                 //单条记录 通常 get 方法 返回单条记录
                 //包裹为 Model 实例
-                return static::createIns($rst);
+                return static::create($rst);
             }
         } else {
             return $rst;

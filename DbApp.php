@@ -46,24 +46,20 @@ class DbApp extends App
      */
     protected function init() 
     {
-        // 0    实例化一些必要的 DbApp 如：Uac, ...
-        $requiredApps = [
-            //这些 DbApp 是必要的
-            "Uac",
-        ];
-        if (!in_array($this->name, $requiredApps)) {
-            for ($i=0;$i<count($requiredApps);$i++) {
-                $apn = ucfirst($requiredApps[$i]);
-                Orm::$apn();
-            }
-        }
+        //创建事件订阅，订阅者为此 DbApp
+        Orm::eventRegist($this);
 
-        // 1    连接并创建数据库实例
+        //调用 Orm::Init()
+        Orm::Init($this->name);
+
+        //连接并创建数据库实例
         $this->initDb();
-
 
         //缓存这个 DbApp 实例到 Orm::$APP
         Orm::cacheApp($this);
+
+        //触发 DbApp 实例化完成事件
+        Orm::eventTrigger('app-insed', $this);
 
         return $this;
     }
@@ -130,6 +126,8 @@ class DbApp extends App
             if (empty($opti)) $opti = $this->dbOptions[$dbn];
             $dbi = Dbo::connect($opti);
             if ($dbi instanceof Dbo) {
+                //创建事件订阅，订阅者为此 Dbo 实例
+                Orm::eventRegist($dbi);
                 //依赖注入
                 $dbi->dependency([
                     //将当前 dbapp 注入 数据库实例
@@ -138,6 +136,8 @@ class DbApp extends App
                     "keyInApp" => $dbn,
                 ]);
                 $this->dbs[$dbn] = $dbi;
+                //触发 数据库实例化事件
+                Orm::eventTrigger("dbo-insed", $dbi);
                 return $dbi;
             } else {
                 return null;
@@ -218,6 +218,34 @@ class DbApp extends App
             "type" => "sqlite",
             "database" => path_fix($this->path($dbp))
         ];
+    }
+
+
+
+    /**
+     * event-handler 订阅事件 处理方法
+     */
+
+    /**
+     * 处理 dbo-insed 事件
+     * @param Dbo $db 数据库实例
+     * @return void
+     */
+    public function ormEventHandlerDboInsed($db)
+    {
+        //var_dump($db->info());
+        //var_dump("dbo-insed event handle by dbapp：".$this->name);
+    }
+
+    /**
+     * 处理 model-inited 事件
+     * @param String $model 数据表(模型) 类
+     * @return void
+     */
+    public function ormEventHandlerModelInited($model)
+    {
+        //var_dump($model);
+        //var_dump("model-inited event handle by dbapp：".$this->name);
     }
 
 

@@ -163,6 +163,8 @@ class Dbo
         if ($this->modelInited($model)!==true) {
             //类全称
             $mcls::$cls = $mcls;
+            //创建事件订阅，订阅者为此 数据表(模型)类
+            Orm::eventRegist($mcls);
             //依赖注入
             $mcls::dependency([
                 //将当前 数据库实例 注入 数据表(模型) 类
@@ -172,6 +174,8 @@ class Dbo
             $mcls::parseConfig();
             //缓存 mcls
             $this->initedModels[] = $mcls;
+            //触发 数据表(模型) 类初始化事件
+            Orm::eventTrigger("model-inited", $mcls);
         }
         return $mcls;
     }
