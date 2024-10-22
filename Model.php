@@ -62,11 +62,6 @@ class Model
     //预设参数解析对象 ModelConfiger 实例
     public static $configer = null;
 
-    //通过解析上方预设参数 得到的 config 数据
-    //public static $fields = [];     //全部字段名数组
-    //public static $field = [];      //各字段 属性
-    //public static $default = [];    //各字段 默认值
-
 
 
     /**
