@@ -19,8 +19,12 @@ abstract class Parser
     /**
      * 依赖：
      * Curd 操作实例
+     * Model 关联的 数据表(模型) 类
+     * Configer Model::$configer
      */
     public $curd = null;
+    public $model = "";
+    public $cfger = null;
 
     /**
      * 构造
@@ -31,6 +35,8 @@ abstract class Parser
     {
         if (!$curd instanceof Curd) return null;
         $this->curd = $curd;
+        $this->model = $curd->model;
+        $this->cfger = $curd->model::$configer;
 
         //使用初始化方法
         $this->initParam();

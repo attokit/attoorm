@@ -573,7 +573,11 @@ class Dbo
 
     /**
      * 创建数据库
-     * @param Array $opt 数据库连接参数
+     * @param Array $opt 数据库创建参数：
+     *  [
+     *      type => sqlite / mysql
+     *      其他参数 由 driver 决定其结构
+     *  ]
      * @return Bool
      */
     public static function create($opt=[])

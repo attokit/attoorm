@@ -158,6 +158,102 @@ class Orm
         return self::class;
     }
 
+    /**
+     * 创建 DbApp 路径以及文件
+     * @param String $app name
+     * @param Array $opt 更多创建参数
+     * @return Orm self
+     */
+    public static function createAppFile($app, $opt=[])
+    {
+        //即使存在 app 路径，也需要检查是否存在下级必要路径，因此不检查 app 主路径是否存在
+        //if (self::hasApp($app)) return self::class;
+        $dbs = $opt["dbOptions"] ?? [];
+        $dbns = array_keys($dbs);
+        $app = strtolower($app);
+        //创建主文件夹
+        $approot = APP_PATH.DS.$app;
+        if (!is_dir($approot)) @mkdir(APP_PATH.DS.$app, 0777);
+        //创建必要目录
+        $ds = [
+            "assets","db","library","model","page",
+            "db".DS."sqlite",
+            "db".DS."config"
+        ];
+        for ($i=0;$i<count($dbns);$i++) {
+            $ds[] = "model".DS.strtolower($dbns[$i]);
+            $ds[] = "db".DS."config".DS.strtolower($dbns[$i]);
+        }
+        foreach ($ds as $i => $di) {
+            $diri = $approot.DS.$di;
+            if (!is_dir($diri)) @mkdir($diri, 0777);
+        }
+        //创建 app 主文件
+        $mf = $approot.DS.ucfirst($app).EXT;
+        if (!file_exists($mf)) {
+            $tmpd = [
+                "app" => [
+                    "name" => ucfirst($app),
+                    "intr" => ""
+                ],
+                "dbOptions" => arr_extend([
+                    "main" => [
+                        "type" => "sqlite",
+                        "database" => "main.db"
+                    ]
+                ], $dbs),
+            ];
+            var_export($tmpd["dbOptions"]);
+            //从缓冲区读取 sql
+            $dbos = ob_get_contents();
+            //清空缓冲区
+            ob_clean();
+            $dbos = str_replace("array (","[", $dbos);
+            $dbos = str_replace(")","]", $dbos);
+            $dbos = str_replace("'","\"", $dbos);
+            $tmpd["dbos"] = $dbos;
+            $tmp = file_get_contents(path_find("root/library/temp/dbapp.tmp"));
+            $tmp = str_tpl($tmp, $tmpd);
+            $fh = @fopen($mf, "w");
+            @fwrite($fh, $tmp);
+            @fclose($fh);
+        }
+        return self::class;
+    }
+
+    /**
+     * 创建 DbApp 路径下 Model 路径以及文件
+     * @param String $app name like: Uac
+     * @param String $dbn db name like: main
+     * @param Array $conf model 参数 数据表参数 json 内容
+     * @return Orm self
+     */
+    public static function createModelFile($app, $dbn, $conf=[])
+    {
+        if (empty($conf)) return self::class;
+        $mdn = $conf["name"] ?? null;
+        if (empty($mdn)) return self::class;
+        $mdp = APP_PATH.DS.strtolower($app).DS."model".DS.strtolower($dbn);
+        if (!is_dir($mdp)) @mkdir($mdp, 0777);
+        $mdf = $mdp.DS.ucfirst($mdn).EXT;
+        if (file_exists($mdf)) return self::class;
+        $tmp = file_get_contents(path_find("root/library/temp/model.tmp"));
+        $tmp = str_tpl($tmp, [
+            "appName" => ucfirst($app),
+            "dbName" => strtolower($dbn),
+            "modelName" => ucfirst($mdn),
+            "table" => [
+                "name" => $conf["table"],
+                "title" => $conf["title"],
+                "desc" => $conf["desc"],
+            ]
+        ]);
+        $fh = @fopen($mdf, "w");
+        @fwrite($fh, $tmp);
+        @fclose($fh);
+        return self::class;
+    }
+
 
     /**
      * event 事件订阅与处理

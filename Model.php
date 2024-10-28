@@ -482,7 +482,7 @@ class Model
      */
     public static function hasField($field)
     {
-        $fds = static::$fields;
+        $fds = static::$configer->fields;
         return in_array($field, $fds);
     }
 
@@ -492,7 +492,7 @@ class Model
      */
     public static function aif()
     {
-        $fdc = static::$field;
+        $fdc = static::$configer->field;
         $rtn = "id";
         foreach ($fdc as $fdn => $c) {
             if ($c["ai"]==true) {

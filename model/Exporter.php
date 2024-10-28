@@ -54,13 +54,13 @@ class Exporter
         $fdc = $this->cfger->field;
 
         //对特殊格式字段执行 值处理
-        $sfds = $this->cfger->specialFields;
+        /*$sfds = $this->cfger->specialFields;
         foreach ($sfds as $tp => $sfdi) {
             $m = "init".ucfirst($tp)."FieldVal";
             if (method_exists($this, $m)) {
                 $this->$m();
             }
-        }
+        }*/
     }
 
     /**

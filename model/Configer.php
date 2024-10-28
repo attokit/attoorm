@@ -755,6 +755,7 @@ class Configer
         if (!$db instanceof Dbo) return null;
         $pi = $db->pathinfo;
         $cfp = $pi["dirname"].DS."..".DS."config";
+        var_dump($cfp);
         if (!is_dir($cfp)) @mkdir($cfp, 0777);
         $cfp = path_fix($cfp);
         return $cfp;
@@ -770,8 +771,10 @@ class Configer
     {
         $cfp = $this->getConfigFilePath();
         $model = $this->model;
+        $dbn = $model::$db->name;
         $mn = strtolower($model::$name);
-        $cf = $cfp.DS.$mn.".json";
+        $cf = $cfp.DS.$dbn.DS.$mn.".json";
+        var_dump($cf);
         if (!file_exists($cf)) return null;
         return j2a(file_get_contents($cf));
     }

@@ -89,7 +89,7 @@ class ColumnParser extends Parser
 
     /**
      * 执行 curd 操作前 返回处理后的 curd column 参数
-     * 必须包含 $curd->model::$configer->includes 数组中指定的 字段
+     * 必须包含 $cfger->includes 数组中指定的 字段
      * !! 子类必须实现 !!
      * @return Mixed curd 操作 medoo 参数，应符合 medoo 参数要求
      */
@@ -97,7 +97,7 @@ class ColumnParser extends Parser
     {
         $column = $this->column;
         if (!is_array($column)) $column = [$column];
-        $includes = $this->curd->model::$configer->includes;
+        $includes = $this->cfger->includes;
         $incs = $this->setColumnTypeArr($includes);
         foreach ($incs as $i => $fi) {
             if (!in_array($fi, $column)) {
@@ -152,7 +152,7 @@ class ColumnParser extends Parser
             //字段名  -->  表名.字段名 [类型]
             if (in_array($fdn, $fds)) {
                 //读取预设的 字段类型
-                $type = $fdc[$fdn]["phptype"];
+                $type = $fdc[$fdn]["type"]["php"] ?? "String";
                 //if ($useJoin) $fdn = $model::$table.".".$fdn." (".$model::$table."_".$fdn.")";
                 if ($useJoin) $fdn = $model::$table.".".$fdn;
                 if ($type!="String") {
@@ -171,7 +171,7 @@ class ColumnParser extends Parser
                 $nfdc = $ncfg->field;
                 if (in_array($nfdn, $nfds)) {
                     //读取预设的 字段类型
-                    $ntype = $nfdc[$nfdn]["phptype"];
+                    $ntype = $nfdc[$nfdn]["type"]["php"] ?? "String";
                     $fdn = $fdn." (".str_replace(".","_",$fdn).")";
                     if ($ntype!="String") {
                         return $fdn." [".$ntype."]";

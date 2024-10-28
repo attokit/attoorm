@@ -8,6 +8,7 @@ namespace Atto\Orm\driver;
 use Atto\Orm\Dbo;
 use Atto\Orm\Driver;
 use Atto\Orm\Configer;
+use Medoo\Medoo;
 
 class Sqlite extends Driver 
 {
@@ -62,14 +63,52 @@ class Sqlite extends Driver
     /**
      * 创建数据库
      * @param Array $opt 数据库创建参数
+     *  [
+     *      type => sqlite
+     *      database => 数据库文件完整路径
+     *      table => [
+     *          表名 => [
+     *              fields => [ 字段名数组 ]
+     *              creation => [
+     *                  字段名 => SQL
+     *              ]
+     *          ]
+     *          ...
+     *      ]
+     *  ]
      * @return Bool
      */
     public static function create($opt=[])
     {
-        $dbf = self::getDbPath($opt);
-        if (file_exists($dbf)) return false;    //已创建
-        $fh = @fopen($dbf, "w");
-        fclose($fh);
+        $dbt = $opt["type"] ?? null;
+        $dbf = $opt["database"] ?? null;
+        if (!is_notempty_str($dbt) || $dbt!="sqlite" || !is_notempty_str($dbf)) return false;
+        $tbs = $opt["table"] ?? [];
+        if (empty($tbs)) return false;
+        if (!file_exists($dbf)) {
+            //db 文件不存在则创建
+            $fh = @fopen($dbf, "w");
+            fclose($fh);
+        }
+        //medoo 连接
+        $db = new Medoo([
+            "type" => "sqlite",
+            "database" => $dbf
+        ]);
+        //创建表
+        foreach ($tbs as $tbn => $tbc) {
+            $c = [];
+            $fds = $tbc["fields"] ?? [];
+            $cfd = $tbc["creation"] ?? [];
+            for ($i=0;$i<count($fds);$i++) {
+                $fdn = $fds[$i];
+                if (!isset($cfd[$fdn])) continue;
+                $c[] = "`".$fdn."` ".$cfd[$fdn];
+            }
+            $c = implode(",",$c);
+            $sql = "CREATE TABLE IF NOT EXISTS `".$tbn."` (".$c.")";
+            $db->query($sql);
+        }
         return true;
     }
 
