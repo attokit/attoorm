@@ -365,8 +365,43 @@ class Dbo
                  * 执行 curd 操作
                  * 返回 curd 操作实例  or  操作结果
                  */
-                if (method_exists($curd, $key)) {
-                    return $this->curd->$key(...$args);
+                if (method_exists($curd, $key) || $curd->hasMedooMethod($key)) {
+                    $rst = $this->curd->$key(...$args);
+                    if ($rst instanceof Curd) return $this;
+                    return $rst;
+                }
+
+                /**
+                 * $db->Model->whereFooBar("~", "bar")  -->  $db->Model->where([ "foo_bar[~]"=>"bar" ])
+                 * $db->Model->orderFooBar() -->  $db->Model->order("foo_bar")
+                 * $db->Model->orderFooBar("ASC") -->  $db->Model->order([ "foo_bar"=>"ASC" ])
+                 * 执行 curd->where()/order()
+                 */
+                if (strlen($key)>5 && in_array(substr($key, 0,5), ["where","order"])) {
+                    $fdn = strtosnake(substr($key, 5), "_");
+                    if ($model::hasField($fdn)) {
+                        $tbn = $model::$configer->table;
+                        $fdk = $tbn.".".$fdn;
+                        if (substr($key, 0,5)=="where" && count($args)>0) {
+                            $where = [];
+                            if (count($args) == 1) {
+                                $where[$fdk] = $args[0];
+                            } else {
+                                $where[$fdk."[".$args[0]."]"] = $args[1];
+                            }
+                            $curd->where($where);
+                            return $this;
+                        } else if (substr($key, 0,5)=="order") {
+                            $order = [];
+                            if (empty($args)) {
+                                $order = $fdk;
+                            } else {
+                                $order[$fdk] = $args[0];
+                            }
+                            $curd->order($order);
+                            return $this;
+                        }
+                    }
                 }
             }
 
@@ -398,7 +433,7 @@ class Dbo
      * @param String $tbn table name
      * @return Table instance  or  null
      */
-    public function table($tbn)
+    public function __table($tbn)
     {
         if ($this->tableInsed($tbn)) return $this->TABLES[$tbn];
         $tbcls = $this->tableCls($tbn);
@@ -413,7 +448,7 @@ class Dbo
      * @param String $tbn table name
      * @return Bool
      */
-    public function tableInsed($tbn)
+    public function __tableInsed($tbn)
     {
         if (!isset($this->TABLES[$tbn])) return false;
         $tbo = $this->TABLES[$tbn];
@@ -425,7 +460,7 @@ class Dbo
      * @param String $tbn table name
      * @return String table class name
      */
-    public function tableCls($tbn)
+    public function __tableCls($tbn)
     {
         $dbn = $this->name;
         $app = $this->app->name;
@@ -527,7 +562,7 @@ class Dbo
      * @param Bool $initCurd 是否重新初始化 curd，默认 true
      * @return Mixed
      */
-    public function curdQuery($method, $initCurd=true)
+    public function __curdQuery($method, $initCurd=true)
     {
         if (!$this->curdInited()) return false;
         $table = $this->curd["table"];

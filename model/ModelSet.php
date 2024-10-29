@@ -71,10 +71,12 @@ class ModelSet implements \ArrayAccess, \IteratorAggregate, \Countable
             $msi = $this->context[0];
 
             /**
-             * $modelset->modelInstanceMethod
-             * 调用 model 实例方法，返回 结果数组
+             * $modelset->modelInstanceMethod()
+             * $modelset->getter()
+             * 调用 model 实例方法 / __call 方法，返回 结果数组
              */
-            if (method_exists($msi, $key)) {
+            $tst = $msi->$key(...$args);
+            if (method_exists($msi, $key) || !empty($tst)) {
                 $rst = $this->map(function($i) use ($key, $args) {
                     return $i->$key(...$args);
                 });

@@ -124,6 +124,24 @@ class Configer
             if (substr($key, -5)==="Field") $fdn = substr($key, 0, -5);
             if (isset($fdc[$fdn])) return (object)$fdc[$fdn];
         }
+
+        /**
+         * $configer->searchFields          -->  [ context["field"][*]["searchable"]==true, ... ]
+         * $configer->jsonFields            -->  [ context["field"][*]["isJson"]==true ]
+         */
+        if (strlen($key)>6 && substr($key, -6)=="Fields") {
+            $k = strtolower(substr($key, 0,-6));
+            $k1 = "is".ucfirst($k);
+            $k2 = $k."able";
+            $idf = $this->model::idf();
+            $kk = isset($fdc[$idf][$k1]) ? $k1 : (isset($fdc[$idf][$k2]) ? $k2 : null);
+            if (is_notempty_str($kk)) {
+                $fds = array_filter($this->context["fields"], function($fi) use ($kk, $fdc) {
+                    return $fdc[$fi][$kk]===true;
+                });
+                return array_merge($fds);
+            }
+        }
         
 
         return null;
@@ -383,6 +401,9 @@ class Configer
             }
         }
 
+        if (isset($this->context["join"])) {
+            $this->context["join"] = [];
+        }
         return $this->buildSetContext([
             "join" => $conf,
             "field" => $fdc

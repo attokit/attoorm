@@ -295,6 +295,8 @@ class Model
                 return $this->$getter();
             }
         }
+
+        return null;
     }
 
     /**
@@ -446,11 +448,12 @@ class Model
         } else if (is_array($rst)) {
             //返回的是 记录 / 记录集
             if (empty($rst)) {
-                if ($method=="get") {
+                /*if ($method=="get") {
                     return static::create($rst);
                 } else {
                     return new ModelSet($mcls, $rst);
-                }
+                }*/
+                return $rst;
             }
             if (is_indexed($rst)) {
                 //记录集 通常 select/rand 方法 返回记录集

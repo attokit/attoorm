@@ -21,7 +21,7 @@ class Exporter
     //关联的 数据表(模型) 类 全称
     public $model = "";
     //关联的 数据表(模型) 类 $configer
-    public $cfger = null;
+    public $conf = null;
     //要输出的 数据表(模型) 实例
     public $rs = null;
 
@@ -36,7 +36,7 @@ class Exporter
         $this->rs = $rs;
         $this->model = $rs::$cls;
         $this->db = $this->model::$db;
-        $this->cfger = $this->model::$configer;
+        $this->conf = $this->model::$configer;
 
         //对 $rs->context 进行初始处理
         $this->initContext();
@@ -50,11 +50,11 @@ class Exporter
     public function initContext()
     {
         //主表
-        $fds = $this->cfger->fields;
-        $fdc = $this->cfger->field;
+        $fds = $this->conf->fields;
+        $fdc = $this->conf->field;
 
         //对特殊格式字段执行 值处理
-        /*$sfds = $this->cfger->specialFields;
+        /*$sfds = $this->conf->specialFields;
         foreach ($sfds as $tp => $sfdi) {
             $m = "init".ucfirst($tp)."FieldVal";
             if (method_exists($this, $m)) {
@@ -71,10 +71,10 @@ class Exporter
      */
     protected function initTimeFieldVal()
     {
-        $spec = $this->cfger->specialFields;
+        $spec = $this->conf->specialFields;
         $fds = $spec["time"] ?? [];
         foreach ($fds as $i => $fdn) {
-            $fdc = $this->cfger->field[$fdn]["time"];
+            $fdc = $this->conf->field[$fdn]["time"];
             $format = $fdc["type"]=="datetime" ? "Y-m-d H:i:s" : "Y-m-d";
             $fv = $this->rs->context[$fdn];
             $str = $fv<=0 ? "" : date($format, $fv*1);
@@ -91,7 +91,7 @@ class Exporter
      */
     protected function initMoneyFieldVal()
     {
-        $spec = $this->cfger->specialFields;
+        $spec = $this->conf->specialFields;
         $fds = $spec["money"] ?? [];
         foreach ($fds as $i => $fdn) {
             $fv = $this->rs->context[$fdn];
@@ -171,7 +171,7 @@ class Exporter
          * 返回主表 字段值
          */
         if (isset($this->rs->context[$key])) return $this->rs->context[$key];
-        $gfds = $this->cfger->getterFields;
+        $gfds = $this->conf->getterFields;
         if (in_array($key, $gfds)) {
             return $this->rs->$key();
         }

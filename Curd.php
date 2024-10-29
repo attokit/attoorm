@@ -10,6 +10,7 @@ namespace Atto\Orm;
 use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
 use Atto\Orm\Model;
+use Atto\Orm\model\ModelSet;
 use Atto\Orm\curd\JoinParser;
 use Atto\Orm\curd\ColumnParser;
 use Medoo\Medoo;
@@ -21,6 +22,8 @@ class Curd
 
     //关联的 模型(数据表) 类全称
     public $model = "";
+    //$model::$configer
+    public $conf = null;
 
     /**
      * curd 参数
@@ -51,6 +54,13 @@ class Curd
     public $columnParser = null;
     public $whereParser = null;
 
+    //支持的 medoo 方法
+    protected $medooMethods = [
+        "select", "insert", "update", "delete", 
+        "replace", "get", "has", "rand", 
+        "count", "max", "min", "avg", "sum"
+    ];
+
     /**
      * 构造 curd 操作实例
      * @param Dbo $db 数据库实例
@@ -62,6 +72,7 @@ class Curd
         $this->db = $db;
         $this->model = $model;
         $this->table = $model::$table;
+        $this->conf = $model::$configer;
         
         //使用 curd 参数处理工具，初始化/编辑 curd 参数
         $this->joinParser = new JoinParser($this);
@@ -222,7 +233,12 @@ class Curd
      */
     public function __call($method, $args)
     {
-        $ms = explode(",", "select,insert,update,delete,replace,get,has,rand,count,max,min,avg,sum");
+        /**
+         * 执行 medoo 方法，完成 curd 操作，返回查询结果
+         * $curd->...->select()
+         * 查询结果如果是 记录/记录集 则 自动包裹为 Model/ModelSet 实例
+         */
+        $ms = $this->medooMethods;  //explode(",", "select,insert,update,delete,replace,get,has,rand,count,max,min,avg,sum");
         if (in_array($method, $ms)) {
             //调用 medoo 查询方法
             if (!$this->ready()) return null;
@@ -311,6 +327,54 @@ class Curd
     }
 
     /**
+     * 特殊查询
+     * 关键字搜索
+     * @param String $sk 关键字，可有多个，逗号隔开
+     * @return ModelSet  or  null
+     */
+    public function search($sk="")
+    {
+        if (!is_notempty_str($sk)) {
+            //销毁当前 curd 操作
+            $this->db->curdDestory();
+            return null;
+        }
+        $ska = explode(",", trim(str_replace("，",",",$sk), ","));
+        $sfds = $this->conf->searchFields;
+        $tbn = $this->conf->table;
+        
+        if (empty($sfds)) {
+            //销毁当前 curd 操作
+            $this->db->curdDestory();
+            return null;
+        }
+        $or = [];
+        for ($i=0;$i<count($sfds);$i++) {
+            $fdi = $sfds[$i];
+            $or[$tbn.".".$fdi."[~]"] = $ska;
+        }
+        $this->where([
+            "OR #search keywords" => $or
+        ]);
+
+        //执行 medoo 查询
+        $rst = $this->select();
+
+        return $rst;
+    }
+
+    /**
+     * 通过 Dbo->Model->method 调用 curd 操作时
+     * 判断 给定的 method 是否是支持的 medooMethod
+     * @param String $key method
+     * @return Bool
+     */
+    public function hasMedooMethod($key)
+    {
+        return in_array($key, $this->medooMethods);
+    }
+
+    /**
      * debug 输出 SQL
      * $curd->debug()->select() 输出 根据当前查询参数 得到的 SQL
      * @param Bool $debug 默认 true
@@ -321,6 +385,13 @@ class Curd
         $this->debug = $debug;
         return $this;
     }
+
+
+
+    /**
+     * 特殊查询
+     * 输出
+     */
 
 
     
