@@ -110,7 +110,7 @@ class JoinParser extends Parser
      */
     public function getParam()
     {
-        if ($this->availabel!=true || $this->use!=true) return [];
+        if ($this->available!=true || $this->use!=true) return [];
         $join = $this->param;
         $temp = $this->temp;
         if (empty($temp)) return $join;

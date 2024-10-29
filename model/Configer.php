@@ -91,6 +91,14 @@ class Configer
         } else {
             //将预设参数写入 configer->context
             $this->context = $conf;
+            //获取 计算字段 Getter
+            $this->buildGetGetters();
+            //解析 join 关联表参数
+            $this->buildJoin();
+            //获取 默认值 数组
+            $this->buildDefault();
+            //解析 API
+            $this->buildApi();
         }
         return $this;
     }
@@ -286,8 +294,13 @@ class Configer
     protected function buildJoin()
     {
         $model = $this->model;
-        $join = $model::$join;
-        $use = $model::$useJoin;
+        if (isset($this->context["join"])) {
+            $join = $this->join;
+            $use = $this->useJoin;
+        } else {
+            $join = $model::$join;
+            $use = $model::$useJoin;
+        }
         $conf = [
             "param" => $join,
             "availabel" => !empty($join),   //join 参数是否可用
@@ -755,7 +768,6 @@ class Configer
         if (!$db instanceof Dbo) return null;
         $pi = $db->pathinfo;
         $cfp = $pi["dirname"].DS."..".DS."config";
-        var_dump($cfp);
         if (!is_dir($cfp)) @mkdir($cfp, 0777);
         $cfp = path_fix($cfp);
         return $cfp;
@@ -774,7 +786,6 @@ class Configer
         $dbn = $model::$db->name;
         $mn = strtolower($model::$name);
         $cf = $cfp.DS.$dbn.DS.$mn.".json";
-        var_dump($cf);
         if (!file_exists($cf)) return null;
         return j2a(file_get_contents($cf));
     }

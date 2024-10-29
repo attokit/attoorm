@@ -180,6 +180,7 @@ class Model
     protected function initInsQueue()
     {
         $model = static::$cls;
+        //var_dump($model);
         $ms = cls_get_ms($model, function($mi) {
             if (substr($mi->name, 0, 7)==="initIns") {
                 //必须是实例方法
@@ -495,7 +496,7 @@ class Model
         $fdc = static::$configer->field;
         $rtn = "id";
         foreach ($fdc as $fdn => $c) {
-            if ($c["ai"]==true) {
+            if ($c["isId"]==true) {
                 $rtn = $fdn;
                 break;
             }
