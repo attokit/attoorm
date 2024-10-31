@@ -18,6 +18,8 @@ use Atto\Orm\Dbo;
 use Atto\Orm\model\Configer;
 use Atto\Orm\model\Exporter;
 use Atto\Orm\model\ModelSet;
+use Atto\Box\Request;
+use Atto\Box\Response;
 
 class Model 
 {
@@ -77,7 +79,7 @@ class Model
         //...
     ];
     //是否新建 记录
-    protected $isNew = false;
+    public $isNew = false;
 
     /**
      * 依赖
@@ -108,16 +110,11 @@ class Model
         //建立输出工具实例
         $this->exporter = new Exporter($this);
         
-        //是否新建记录，还未写入数据库
-        $idf = static::idf();
-        $this->isNew = !empty($this->context) && !isset($this->context[$idf]);
-        
         //创建事件订阅，订阅者为此 数据表记录实例
         Orm::eventRegist($this);
 
         //执行 可能存在的 initInsFooBar() 通常由 实现各种数据操作功能的 traits 引入
         $this->initInsQueue();
-
         //最后执行 initInsFinal() 方法，可由各 数据表(模型) 类自定义
         $this->initInsFinal();
 
@@ -133,7 +130,13 @@ class Model
      */
     protected function initInsData($data=[])
     {
-        if (empty($data)) return $this;
+        //如果未传入 初始 data 则视为新建记录，初始 data = 默认值 default
+        if (empty($data)) {
+            $data = static::$configer->default;
+            //标记为 新建(未保存)记录
+            $this->isNew = true;
+        }
+        
         //从 data 中分离出 join 关联表返回的数据
         $jtbs = static::$configer->join["tables"] ?? [];
         $mdata = [];
@@ -240,7 +243,7 @@ class Model
         if (!static::$db instanceof Dbo) return null;
 
         /**
-         * $rs->db
+         * $rs->Db / $rs->Main
          * 返回 $model::$db
          */
         if ($key=="Db" || $key==ucfirst(static::$db->name)) {
@@ -248,7 +251,7 @@ class Model
         }
 
         /**
-         * $rs->Model
+         * $rs->Model / $rs->Tablename
          * 相当于 $db->Model
          */
         if ($key=="Model" || $key==static::$name) {
@@ -364,10 +367,27 @@ class Model
     }
 
     /**
+     * 创建一条新记录，但不写入数据库
+     * @param Array $data 记录初始值
+     * @return Model 实例
+     */
+    public static function new($data=[])
+    {
+        if (!empty($data)) {
+            $dft = static::$configer->default;
+            $data = arr_extend($dft, $data);
+        }
+        $rs = new static($data);
+        $rs->isNew = true;
+        return $rs;
+    }
+
+
+    /**
      * curd 操作
      */
     //r
-    public static function find(...$args)
+    public static function __find(...$args)
     {
         $tb = static::$name;
         $db = static::$db;
@@ -470,24 +490,18 @@ class Model
     }
 
     /**
-     * 创建一条新记录，但不写入数据库
-     * @param Array $data 记录初始值
-     * @return Model 实例
-     */
-    public static function new($data=[])
-    {
-        return new static($data);
-    }
-
-    /**
      * 判断 表 是否包含字段 $field
-     * @param String $field
+     * @param String $field 可以是 field 或 table.field
      * @return Bool
      */
     public static function hasField($field)
     {
-        $fds = static::$configer->fields;
-        return in_array($field, $fds);
+        $conf = static::$configer;
+        $fds = $conf->fields;
+        $tbn = $conf->table;
+        if (strpos($field, ".")===false) return in_array($field, $fds);
+        $fa = explode(".",$field);
+        return $tbn==$fa[0] && in_array($fa[1], $fds);
     }
 
     /**
@@ -510,8 +524,101 @@ class Model
     public static function idf() {return static::aif();}
 
 
+    /**
+     * Apis
+     */
 
+    /**
+     * 根据 api 方法名 获取 configer->api 参数数据
+     * @param String $api 方法名，不包含结尾的 "Api"
+     * @return Array  or  null
+     */
+    public static function getApiConf($api)
+    {
+        $conf = static::$configer;
+        if (!$conf instanceof Configer) return false;
+        $apis = $conf->api;
+        if (!is_notempty_arr($apis)) return false;
+        $ao = null;
+        foreach ($apis as $akey => $aconf) {
+            if (substr($akey, -1*(strlen($api)+1))==="-".$api) {
+                $ao = $aconf;
+                break;
+            }
+        }
+        return $ao;
+    }
+
+    /**
+     * 判断是否存在 api
+     * @param String $api 方法名，不包含结尾的 "Api"
+     * @return Bool
+     */
+    public static function hasApi($api)
+    {
+        $aconf = static::getApiConf($api);
+        if (!is_notempty_arr($aconf)) return false;
+        //if ($aconf["isModel"]===true) return "static";
+        return true;
+    }
+
+    /**
+     * api
+     * @role all
+     * @desc 新建数据记录(C)
+     * @param Array $args 更多 URI 参数
+     * @return Model 实例
+     */
+    public static function createApi(...$args)
+    {
+        $pd = Request::input("json");
+        $data = $pd["data"] ?? [];
+        $rs = static::new($data);
+        return $rs->context;
+    }
+
+    /**
+     * api
+     * @role all
+     * @desc 编辑数据记录(U)
+     * @param Array $args 更多 URI 参数
+     * @return Model 实例
+     */
+    public static function updateApi(...$args)
+    {
+        
+    }
     
+    /**
+     * api
+     * @role all
+     * @desc 查询数据记录(R)
+     * @param Array $args 更多 URI 参数
+     * @return Model 实例
+     */
+    public static function retrieveApi(...$args)
+    {
+        $post = array_pop($args);
+        var_dump($post);
+        exit;
+        if (empty($post)) return [];
+        $query = $post["query"] ?? [];
+        
+    }
+    
+    /**
+     * api
+     * @role all
+     * @desc 删除数据记录(D)
+     * @param Array $args 更多 URI 参数
+     * @return Model 实例
+     */
+    public static function deleteApi(...$args)
+    {
+        
+    }
+
+
 
 
 

@@ -24,7 +24,7 @@ abstract class Parser
      */
     public $curd = null;
     public $model = "";
-    public $cfger = null;
+    public $conf = null;
 
     /**
      * 构造
@@ -36,7 +36,7 @@ abstract class Parser
         if (!$curd instanceof Curd) return null;
         $this->curd = $curd;
         $this->model = $curd->model;
-        $this->cfger = $curd->model::$configer;
+        $this->conf = $curd->model::$configer;
 
         //使用初始化方法
         $this->initParam();

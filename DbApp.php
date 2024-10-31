@@ -6,8 +6,12 @@
 namespace Atto\Orm;
 
 use Atto\Box\App;
+use Atto\Box\Request;
+use Atto\Box\Response;
 use Atto\Orm\Orm;
 use Atto\Orm\Dbo;
+use Atto\Orm\Model;
+use Atto\Orm\Api;
 
 class DbApp extends App 
 {
@@ -39,6 +43,15 @@ class DbApp extends App
     public $dbs = [];
     //当前登录到系统的 用户 model 实例
     public $usr = null;
+
+    /**
+     * 当前会话 要操作的 Dbo实例 / Model类 指针
+     * 通过 URI 指定
+     */
+    protected $currentDb = null;
+    protected $currentModel = "";
+    //当前会话 post data
+    protected $post = [];
 
     /**
      * 当前 dbapp 提供的数据库服务 初始化
@@ -79,8 +92,6 @@ class DbApp extends App
         return $this;
     }
 
-
-
     /**
      * __GET 方法
      * @param String $key 
@@ -96,13 +107,141 @@ class DbApp extends App
         }
 
         /**
+         * $app->db
+         * 访问 $app->currentDb
+         */
+        if ($key=="db") {
+            return $this->currentDb;
+        }
+
+        /**
+         * $app->model
+         * 访问 $app->currentDb->{$app->currentModel::$name}
+         * 相当于 $app->Currentdb->Currentmodel
+         */
+        if ($key=="model") {
+            $db = $this->db;
+            if ($db instanceof Dbo) {
+                $model = $this->currentModel;
+                if (class_exists($model)) {
+                    $tbn = ucfirst($model::$name);
+                    if (is_notempty_str($tbn)) {
+                        return $db->$tbn;
+                    }
+                }
+            }
+            //未指定当前会话 要操作的 Dbo实例 / Model类 操作指针 则返回 null
+            return null;
+        }
+
+        /**
          * $app->mainDb
          * 获取当前 DbApp 下的数据库实例
          */
-        if (substr($key, -2)=="Db") {
-            $dbn = substr($key, 0, -2);
-            return $this->db($dbn);
+        //if (substr($key, -2)=="Db") {
+        //    $dbn = substr($key, 0, -2);
+        //    return $this->db($dbn);
+        //}
+        
+    }
+
+
+
+    /**
+     * 外部访问 入口
+     * https://db.cgy.design/[DbApp]/...
+     *      
+     * 
+     * @param Array $args URI
+     * @return Mixed
+     */
+    public function defaultRoute(...$args)
+    {
+        //空 URI
+        if (empty($args)) {
+
+            exit;
         }
+
+        //post data
+        $pd = Request::input("json");
+        $this->post = empty($pd) ? [] : $pd;
+
+        //URI = [action|tbn]/...
+        if ($this->hasDb($args[0])!==true) {
+            //未指定 dbn 则默认使用 main 作为当前数据库实例 currentDb
+            $this->currentDb = $this->db("main");
+            //调用 foobarAction() 
+            if (method_exists($this, $args[0]."Action")) {
+                $m = array_shift($args)."Action";
+                return $this->$m(...$args);
+            }
+        }
+
+        //URI = dbn/...
+        if ($this->hasDb($args[0])===true) {
+            $dbn = array_shift($args);
+            $this->currentDb = $this->db($dbn);
+        }
+
+        //dbn error
+        $db = $this->db;    //$app->currentDb
+        if (!$db instanceof Dbo) {
+            //加载数据库发生错误
+            trigger_error("custom::无法正确的加载数据库", E_USER_ERROR);
+            exit;
+        }
+
+        //URI = dbn
+        if (empty($args)) {
+            //数据库默认页
+
+            exit;
+        }
+
+        //URI = dbn/action/...
+        if ($db->hasModel($args[0])!==true) {
+            //访问 数据库实例方法
+            $m = array_shift($args)."Action";
+            if (method_exists($db, $m)) {
+                return $this->$m(...$args);
+            }
+            Response::code(404);
+        }
+
+        //URI = dbn/tbn/...
+        if ($db->hasModel($args[0])===true) {
+            $model = array_shift($args);
+            $this->currentModel = $db->getModel($model);
+        }
+
+        //model name error
+        $model = $this->model;
+        if (empty($model) || $model==null) {
+            //初始化 Model 类失败
+            trigger_error("custom::无法正确的初始化数据表", E_USER_ERROR);
+            exit;
+        }
+
+        //URI = dbn/tbn
+        if (empty($args)) {
+            //数据表默认页 默认输出 数据表参数 
+            $conf = $this->model->configer;
+            return $conf->context;
+            exit;
+        }
+
+        //URI = dbn/tbn/apiname/... 调用 Model 类 or 实例 Api
+        $api = Api::init($args[0], $this);
+        if ($api instanceof Api) {
+            //执行 api 方法
+            array_shift($args);     //api 方法名
+            return $api->run(...$args);
+        }
+
+        //无 命中操作
+        Response::code(404);
+
     }
 
 

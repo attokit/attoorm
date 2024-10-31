@@ -89,7 +89,11 @@ class ColumnParser extends Parser
 
     /**
      * 执行 curd 操作前 返回处理后的 curd column 参数
-     * 必须包含 $cfger->includes 数组中指定的 字段
+     * 每次查询都必须包含以下字段：
+     *      $conf->idFields id 字段
+     *      $conf->generatorFields 系统创建的自增 id
+     *      $conf->includes 数组中指定的 字段
+     * 
      * !! 子类必须实现 !!
      * @return Mixed curd 操作 medoo 参数，应符合 medoo 参数要求
      */
@@ -97,7 +101,14 @@ class ColumnParser extends Parser
     {
         $column = $this->column;
         if (!is_array($column)) $column = [$column];
-        $includes = $this->cfger->includes;
+        
+        $includes = $this->conf->includes;
+        $idfs = $this->conf->idFields;
+        $gfs = $this->conf->generatorFields;
+        if (!is_array($includes)) $includes = [];
+        if (is_notempty_arr($idfs)) $includes = array_merge($includes, $idfs);
+        if (is_notempty_arr($gfs)) $includes = array_merge($includes, $gfs);
+
         $incs = $this->setColumnTypeArr($includes);
         foreach ($incs as $i => $fi) {
             if (!in_array($fi, $column)) {

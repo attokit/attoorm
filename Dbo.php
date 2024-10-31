@@ -365,43 +365,10 @@ class Dbo
                  * 执行 curd 操作
                  * 返回 curd 操作实例  or  操作结果
                  */
-                if (method_exists($curd, $key) || $curd->hasMedooMethod($key)) {
+                if (method_exists($curd, $key) || $curd->hasWhereMethod($key) || $curd->hasMedooMethod($key)) {
                     $rst = $this->curd->$key(...$args);
                     if ($rst instanceof Curd) return $this;
                     return $rst;
-                }
-
-                /**
-                 * $db->Model->whereFooBar("~", "bar")  -->  $db->Model->where([ "foo_bar[~]"=>"bar" ])
-                 * $db->Model->orderFooBar() -->  $db->Model->order("foo_bar")
-                 * $db->Model->orderFooBar("ASC") -->  $db->Model->order([ "foo_bar"=>"ASC" ])
-                 * 执行 curd->where()/order()
-                 */
-                if (strlen($key)>5 && in_array(substr($key, 0,5), ["where","order"])) {
-                    $fdn = strtosnake(substr($key, 5), "_");
-                    if ($model::hasField($fdn)) {
-                        $tbn = $model::$configer->table;
-                        $fdk = $tbn.".".$fdn;
-                        if (substr($key, 0,5)=="where" && count($args)>0) {
-                            $where = [];
-                            if (count($args) == 1) {
-                                $where[$fdk] = $args[0];
-                            } else {
-                                $where[$fdk."[".$args[0]."]"] = $args[1];
-                            }
-                            $curd->where($where);
-                            return $this;
-                        } else if (substr($key, 0,5)=="order") {
-                            $order = [];
-                            if (empty($args)) {
-                                $order = $fdk;
-                            } else {
-                                $order[$fdk] = $args[0];
-                            }
-                            $curd->order($order);
-                            return $this;
-                        }
-                    }
                 }
             }
 
@@ -548,7 +515,7 @@ class Dbo
      * 销毁当前 curd 操作实例
      * @return Dbo $this
      */
-    public function curdDestory()
+    public function curdUnset()
     {
         if ($this->curdInited()==true) {
             $this->curd = null;

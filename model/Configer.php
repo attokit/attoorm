@@ -493,6 +493,7 @@ class Configer
             if (is_string($confi["role"]) && $confi["role"]!="all") {
                 $confi["role"] = arr($confi["role"]);
             }
+            //$akey = $model::apikey($name);
             $akey = str_replace("\\","-", str_replace("\\model","",substr(strtolower($model),10)));
             $akey .= ($isStatic ? "-model-api-" : "-api-").$name;
             $confi["authKey"] = $akey;

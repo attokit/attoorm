@@ -13,6 +13,7 @@ use Atto\Orm\Model;
 use Atto\Orm\model\ModelSet;
 use Atto\Orm\curd\JoinParser;
 use Atto\Orm\curd\ColumnParser;
+use Atto\Orm\curd\WhereParser;
 use Medoo\Medoo;
 
 class Curd 
@@ -42,7 +43,7 @@ class Curd
     //要返回值的 字段名 []
     //public $field = "*";
     //where 参数
-    public $where = [];
+    //public $where = [];
 
     //debug 标记，用于输出 SQL
     protected $debug = false;
@@ -77,6 +78,7 @@ class Curd
         //使用 curd 参数处理工具，初始化/编辑 curd 参数
         $this->joinParser = new JoinParser($this);
         $this->columnParser = new ColumnParser($this);
+        $this->whereParser = new WhereParser($this);
 
         //$this->join = $model::$join;
         //curd 操作初始化完成后，立即处理 查询字段名数组
@@ -99,6 +101,16 @@ class Curd
             class_exists($model) &&
             $table!="" && 
             $table==$cfg->table;
+    }
+
+    /**
+     * 销毁当前 curd 实例
+     * @return Null
+     */
+    public function unset()
+    {
+        $this->db->curdUnset();
+        return null;
     }
 
     /**
@@ -155,56 +167,11 @@ class Curd
      */
     public function where($where=[])
     {
-        $ow = $this->where;
-        $this->where = arr_extend($ow, $where);
-        return $this;
-    }
-
-    /**
-     * 构造 medoo 查询参数
-     * limit 参数 
-     * @param Array $limit 与 medoo limit 参数格式一致
-     * @return Curd $this
-     */
-    public function limit($limit=[])
-    {
-        if (
-            (is_numeric($limit) && $limit>0) ||
-            (is_notempty_arr($limit) && is_indexed($limit))
-        ) {
-            $this->where["LIMIT"] = $limit;
+        $wp = $this->whereParser;
+        if ($wp instanceof WhereParser) {
+            $wp->setParam($where);
         }
-        return $this;
-    }
 
-    /**
-     * 构造 medoo 查询参数
-     * order 参数 
-     * @param Array $order 与 medoo order 参数格式一致
-     * @return Curd $this
-     */
-    public function order($order=[])
-    {
-        if (
-            is_notempty_str($order) ||
-            (is_notempty_arr($order) && is_associate($order))
-        ) {
-            $this->where["ORDER"] = $order;
-        }
-        return $this;
-    }
-
-    /**
-     * 构造 medoo 查询参数
-     * match 参数 全文搜索
-     * @param Array $match 与 medoo match 参数格式一致
-     * @return Curd $this
-     */
-    public function match($match=[])
-    {
-        if (!empty($match)) {
-            $this->where["MATCH"] = $match;
-        }
         return $this;
     }
 
@@ -219,7 +186,7 @@ class Curd
         $args["table"] = $this->table;
         $args["join"] = $this->joinParser->getParam();      //$this->parseJoin();
         $args["column"] = $this->columnParser->getParam();   //$this->parseField();
-        $args["where"] = empty($this->where) ? [] : $this->where;
+        $args["where"] = $this->whereParser->getParam();
         return $args;
     }
 
@@ -233,13 +200,54 @@ class Curd
      */
     public function __call($method, $args)
     {
+        $model = $this->model;
+
+        /**
+         * 执行 where 方法，构造 where 参数
+         * 返回 curd 实例自身
+         */
+        if ($this->hasWhereMethod($method)===true) {
+
+            /**
+             * 调用 whereParser->method()
+             * $curd->limit()->order()->...
+             */
+            $wp = $this->whereParser;
+            if ($wp instanceof WhereParser && method_exists($wp, $method)) {
+                $wp->$method(...$args);
+                return $this;
+            }
+
+            /**
+             * $curd->whereFooBar("~", "bar")  -->  $curd->where([ "foo_bar[~]"=>"bar" ])
+             * $curd->orderFooBar() -->  $curd->order("foo_bar")
+             * $curd->orderFooBar("ASC") -->  $curd->order([ "foo_bar"=>"ASC" ])
+             * 执行 curd->where()/order()
+             */
+            if (strlen($method)>5 && in_array(substr($method, 0,5), ["where","order"])) {
+                //whereFooBar --> 字段名：foo_bar
+                $fdn = strtosnake(substr($method, 5), "_");
+                if ($model::hasField($fdn)) {
+                    if (substr($method, 0,5)=="where" && count($args)>0) {
+                        $this->whereCol($fdn, ...$args);
+                        return $this;
+                    } else if (substr($method, 0,5)=="order") {
+                        $this->orderCol($fdn, ...$args);
+                        return $this;
+                    }
+                }
+            }
+
+        }
+
         /**
          * 执行 medoo 方法，完成 curd 操作，返回查询结果
          * $curd->...->select()
          * 查询结果如果是 记录/记录集 则 自动包裹为 Model/ModelSet 实例
          */
-        $ms = $this->medooMethods;  //explode(",", "select,insert,update,delete,replace,get,has,rand,count,max,min,avg,sum");
-        if (in_array($method, $ms)) {
+        //$ms = $this->medooMethods;  //explode(",", "select,insert,update,delete,replace,get,has,rand,count,max,min,avg,sum");
+        //if (in_array($method, $ms)) {
+        if ($this->hasMedooMethod($method)===true) {
             //调用 medoo 查询方法
             if (!$this->ready()) return null;
             //准备查询参数
@@ -320,10 +328,12 @@ class Curd
             if (is_notempty_arr($args) && is_bool($args[0])) {
                 $unset = array_unshift($args);
             }
-            if ($unset) $this->db->curdDestory();
+            if ($unset) $this->unset();
             
             return $rst;
         }
+
+        return null;
     }
 
     /**
@@ -334,32 +344,14 @@ class Curd
      */
     public function search($sk="")
     {
-        if (!is_notempty_str($sk)) {
-            //销毁当前 curd 操作
-            $this->db->curdDestory();
-            return null;
-        }
-        $ska = explode(",", trim(str_replace("，",",",$sk), ","));
-        $sfds = $this->conf->searchFields;
-        $tbn = $this->conf->table;
-        
-        if (empty($sfds)) {
-            //销毁当前 curd 操作
-            $this->db->curdDestory();
-            return null;
-        }
-        $or = [];
-        for ($i=0;$i<count($sfds);$i++) {
-            $fdi = $sfds[$i];
-            $or[$tbn.".".$fdi."[~]"] = $ska;
-        }
-        $this->where([
-            "OR #search keywords" => $or
-        ]);
+        $wp = $this->whereParser;
+        if (!$wp instanceof WhereParser) return $this->unset();
+        //$sk 解析为 where 参数
+        $kw = $wp->keyword($sk);
+        if ($kw===false) return $this->unset();
 
         //执行 medoo 查询
         $rst = $this->select();
-
         return $rst;
     }
 
@@ -372,6 +364,25 @@ class Curd
     public function hasMedooMethod($key)
     {
         return in_array($key, $this->medooMethods);
+    }
+
+    /**
+     * 通过 Dbo->Model->method 调用 whereParser 方法时
+     * 判断 给定的 method 是否支持
+     * @param String $key method
+     * @return Bool
+     */
+    public function hasWhereMethod($key)
+    {
+        $wp = $this->whereParser;
+        if ($wp instanceof WhereParser && method_exists($wp, $key)) {
+            return true;
+        }
+        //whereFooBar() / orderFooBar()
+        if (strlen($key)>5 && in_array(substr($key, 0,5), ["where","order"])) {
+            return true;
+        }
+        return false;
     }
 
     /**

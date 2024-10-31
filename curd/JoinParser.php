@@ -42,8 +42,8 @@ class JoinParser extends Parser
      */
     public function initParam()
     {
-        $cfg = $this->cfger;
-        $join = $cfg->join;
+        $conf = $this->conf;
+        $join = $conf->join;
         //写入初始参数
         foreach ($join as $k => $v) {
             $this->$k = $v;
